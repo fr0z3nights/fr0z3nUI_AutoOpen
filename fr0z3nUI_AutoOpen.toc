@@ -5,7 +5,7 @@
 ## Version: 2026.01.14
 ## SavedVariables: fr0z3nUI_AutoOpen_Acc, fr0z3nUI_AutoOpen_Settings, fr0z3nUI_AutoOpen_Timers
 ## SavedVariablesPerCharacter: fr0z3nUI_AutoOpen_Char
-
+ 
 # Database Modules
 fr0z3nUI_AutoOpenXX.lua
 fr0z3nUI_AutoOpenTR.lua
