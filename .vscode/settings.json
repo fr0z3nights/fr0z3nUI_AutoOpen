@@ -1,9 +1,23 @@
 {
   "Lua.diagnostics.globals": [
-    "SlashCmdList",
-    "DEFAULT_CHAT_FRAME",
-    "UIParent",
-    "TooltipDataProcessor"
+        "SlashCmdList",
+        "DEFAULT_CHAT_FRAME",
+        "UIParent",
+        "TooltipDataProcessor",
+        "LootFrame",
+        "CreateFrame",
+        "C_Timer",
+        "C_Container",
+        "GetTime",
+        "time",
+        "InCombatLockdown",
+        "GetItemInfo",
+        "Enum",
+        "UIPanelButtonTemplate",
+        "InputBoxTemplate",
+        "UIPanelCloseButton",
+        "GameFontNormalLarge",
+        "GameFontHighlight"
 ],
 "Lua.workspace.checkThirdParty": false,
 "Lua.runtime.version": "Lua 5.1",
