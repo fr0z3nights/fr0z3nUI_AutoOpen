@@ -110,18 +110,28 @@ local function CheckTimersOnLogin()
             b, s = tonumber(b), tonumber(s)
             if b and s then
                 local currentID = C_Container.GetContainerItemID(b, s)
-                if ns.timed and ns.timed[data.id] then
-                    local remaining = ns.timed[data.id][1] - (currentTime - data.startTime)
-                    if currentID ~= data.id then
-                        if remaining > 0 then print("|cff00ccff[FAO]|r Timer Disrupted: |cffffff00"..ns.timed[data.id][2].."|r moved.") end
+                local id = data and tonumber(data.id)
+                if id and ns.timed and ns.timed[id] then
+                    local duration = tonumber(ns.timed[id][1])
+                    local startTime = tonumber(data.startTime)
+                    if duration and startTime then
+                        local remaining = duration - (currentTime - startTime)
+                        if currentID ~= id then
+                            if remaining > 0 then print("|cff00ccff[FAO]|r Timer Disrupted: |cffffff00"..ns.timed[id][2].."|r moved.") end
+                            fr0z3nUI_AutoOpen_Timers[slotKey] = nil
+                        elseif remaining > 0 then
+                            local d = math.floor(remaining / 86400)
+                            local h = math.floor((remaining % 86400) / 3600)
+                            local m = math.ceil((remaining % 3600) / 60)
+                            print(string.format("|cff00ccff[FAO]|r Timer: |cffffff00%s|r - |cffff0000%dd %dh %dm|r left.", ns.timed[id][2], d, h, m))
+                            foundAny = true
+                        else
+                            fr0z3nUI_AutoOpen_Timers[slotKey] = nil
+                        end
+                    else
+                        -- Invalid timer entry, clear it.
                         fr0z3nUI_AutoOpen_Timers[slotKey] = nil
-                    elseif remaining > 0 then
-                        local d = math.floor(remaining / 86400)
-                        local h = math.floor((remaining % 86400) / 3600)
-                        local m = math.ceil((remaining % 3600) / 60)
-                        print(string.format("|cff00ccff[FAO]|r Timer: |cffffff00%s|r - |cffff0000%dd %dh %dm|r left.", ns.timed[data.id][2], d, h, m))
-                        foundAny = true
-                    else fr0z3nUI_AutoOpen_Timers[slotKey] = nil end
+                    end
                 end
             end
         end
@@ -144,12 +154,22 @@ function frame:RunScan()
                 local isHatching = false
                 if ns.timed and ns.timed[id] then
                     local key = GetSlotKey(b, s)
-                    if not fr0z3nUI_AutoOpen_Timers[key] or fr0z3nUI_AutoOpen_Timers[key].id ~= id then
-                        fr0z3nUI_AutoOpen_Timers[key] = { id = id, startTime = time() }
-                    end
-                    local hatchTime = ns.timed[id][1]
-                    if (time() - fr0z3nUI_AutoOpen_Timers[key].startTime) < hatchTime then
-                        isHatching = true
+                    fr0z3nUI_AutoOpen_Timers = fr0z3nUI_AutoOpen_Timers or {}
+                    local now = time and time() or nil
+                    local hatchTime = tonumber(ns.timed[id][1])
+                    if now and hatchTime then
+                        local entry = fr0z3nUI_AutoOpen_Timers[key]
+                        local startTime = entry and tonumber(entry.startTime) or nil
+                        if type(entry) ~= "table" or entry.id ~= id or not startTime then
+                            fr0z3nUI_AutoOpen_Timers[key] = { id = id, startTime = now }
+                            startTime = now
+                        end
+                        if (now - startTime) < hatchTime then
+                            isHatching = true
+                        end
+                    else
+                        -- Bad timed entry or time() unavailable; clear any persisted timer.
+                        fr0z3nUI_AutoOpen_Timers[key] = nil
                     end
                 end
                 
@@ -204,12 +224,52 @@ end)
 
 -- [ TOOLTIP COUNTDOWN ]
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
-    if data.id and ns.timed and ns.timed[data.id] then
-        for _, tData in pairs(fr0z3nUI_AutoOpen_Timers) do
-            if tData.id == data.id then
-                local rem = ns.timed[data.id][1] - (time() - tData.startTime)
-                if rem > 0 then
-                    tooltip:AddLine(" "); tooltip:AddLine(string.format("|cff00ccffHatching In:|r |cffff0000%dd %dh %dm|r", math.floor(rem/86400), math.floor((rem%86400)/3600), math.ceil((rem%3600)/60)))
+    local id = data and data.id
+
+    if id then
+        if ns.exclude and ns.exclude[id] then
+            tooltip:AddLine("|cff00ccff[FAO]|r Item is |cffff0000Excluded|r")
+        end
+
+        if ns.items and ns.items[id] then
+            tooltip:AddLine("|cff00ccff[FAO]|r Item is |cff00ff00Added|r")
+        end
+
+        if ns.timed and ns.timed[id] then
+            tooltip:AddLine("|cff00ccff[FAO]|r Item is |cffffff00Timed|r")
+        end
+
+        if ns.levelLocked and ns.levelLocked[id] then
+            local req = tonumber(ns.levelLocked[id][1])
+            local level = (UnitLevel and UnitLevel("player")) or nil
+            local ok = (req and level and level >= req) or false
+            local color = ok and "|cff00ff00" or "|cffff9900"
+            if req then
+                if ok then
+                    tooltip:AddLine("|cff00ccff[FAO]|r Item is "..color.."Level "..req.." Unlocked|r")
+                else
+                    tooltip:AddLine("|cff00ccff[FAO]|r Item is "..color.."Level "..req.." Locked|r")
+                end
+            else
+                tooltip:AddLine("|cff00ccff[FAO]|r Item is "..color.."Level Locked|r")
+            end
+        end
+    end
+
+    if data.id and ns.timed and ns.timed[data.id] and type(fr0z3nUI_AutoOpen_Timers) == "table" and time then
+        local duration = tonumber(ns.timed[data.id][1])
+        local now = time()
+        if duration and now then
+            for _, tData in pairs(fr0z3nUI_AutoOpen_Timers) do
+                if tData and tData.id == data.id then
+                    local startTime = tonumber(tData.startTime)
+                    if startTime then
+                        local rem = duration - (now - startTime)
+                        if rem > 0 then
+                            tooltip:AddLine(" ")
+                            tooltip:AddLine(string.format("|cff00ccffHatching In:|r |cffff0000%dd %dh %dm|r", math.floor(rem/86400), math.floor((rem%86400)/3600), math.ceil((rem%3600)/60)))
+                        end
+                    end
                 end
             end
         end
