@@ -1,6 +1,7 @@
 local addonName, ns = ...
 local lastOpenTime, atBank, atMail = 0, false, false
 local OPEN_COOLDOWN = 1.5
+local didPruneCustomWhitelists = false
 
 local function GetRequiredLevelForID(id)
     if not (ns and ns.levelLocked and id) then return nil end
@@ -15,11 +16,88 @@ local function GetSlotKey(bag, slot)
     return bag.."-"..slot
 end
 
+local function GetItemNameSafe(id)
+    if not id then return nil end
+    if C_Item and C_Item.GetItemNameByID then
+        return C_Item.GetItemNameByID(id)
+    end
+    if C_Item and C_Item.GetItemInfo then
+        local name = C_Item.GetItemInfo(id)
+        return name
+    end
+    return nil
+end
+
 local function InitSV()
     fr0z3nUI_AutoOpen_Acc = fr0z3nUI_AutoOpen_Acc or {}
     fr0z3nUI_AutoOpen_Char = fr0z3nUI_AutoOpen_Char or {}
     fr0z3nUI_AutoOpen_Settings = fr0z3nUI_AutoOpen_Settings or { disabled = {} }
+    fr0z3nUI_AutoOpen_CharSettings = fr0z3nUI_AutoOpen_CharSettings or {}
+
+    -- Great Vault is stored per-character as a 3-state mode:
+    -- OFF = disabled, ON = show at login, RL = show on /reload.
+    -- Migration: older versions used fr0z3nUI_GreatVault_CharSettings.enabled or fr0z3nUI_AutoOpen_CharSettings.greatVault (boolean).
+    if fr0z3nUI_AutoOpen_CharSettings.greatVaultMode == nil then
+        if type(fr0z3nUI_AutoOpen_CharSettings.greatVault) == "boolean" then
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = fr0z3nUI_AutoOpen_CharSettings.greatVault and "ON" or "OFF"
+            fr0z3nUI_AutoOpen_CharSettings.greatVault = nil
+        elseif type(fr0z3nUI_GreatVault_CharSettings) == "table" and fr0z3nUI_GreatVault_CharSettings.enabled ~= nil then
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = fr0z3nUI_GreatVault_CharSettings.enabled and "ON" or "OFF"
+            fr0z3nUI_GreatVault_CharSettings = nil
+        else
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "OFF"
+        end
+    end
+
+    if fr0z3nUI_AutoOpen_CharSettings.autoOpen == nil then
+        -- Migration: older versions stored this account-wide
+        if fr0z3nUI_AutoOpen_Settings.autoOpen ~= nil then
+            fr0z3nUI_AutoOpen_CharSettings.autoOpen = fr0z3nUI_AutoOpen_Settings.autoOpen and true or false
+        else
+            fr0z3nUI_AutoOpen_CharSettings.autoOpen = true
+        end
+    end
     fr0z3nUI_AutoOpen_Timers = fr0z3nUI_AutoOpen_Timers or {}
+
+    -- Cleanup: if a user-added SavedVariable item is now in the addon database,
+    -- remove it from the custom whitelist to avoid redundant entries.
+    if not didPruneCustomWhitelists and ns and ns.items then
+        local function Prune(tbl)
+            for key in pairs(tbl) do
+                local id = tonumber(key) or key
+                if type(id) == "number" and ns.items[id] then
+                    tbl[key] = nil
+                end
+            end
+        end
+
+        Prune(fr0z3nUI_AutoOpen_Acc)
+        Prune(fr0z3nUI_AutoOpen_Char)
+        didPruneCustomWhitelists = true
+    end
+end
+
+-- [ GREAT VAULT ]
+local function ShowGreatVaultCore()
+    if C_AddOns and C_AddOns.LoadAddOn then
+        C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
+    end
+    if WeeklyRewardsFrame then
+        WeeklyRewardsFrame:Show()
+        return
+    end
+    C_Timer.After(0.5, function()
+        if WeeklyRewardsFrame then WeeklyRewardsFrame:Show() end
+    end)
+end
+
+ns.ShowGreatVault = function()
+    InitSV()
+    local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
+    mode = tostring(mode):upper()
+    if mode ~= "OFF" then
+        ShowGreatVaultCore()
+    end
 end
 
 -- [ TIMER RECOVERY & DISRUPTION ]
@@ -53,6 +131,8 @@ end
 -- [ SCAN ENGINE ]
 local frame = CreateFrame('Frame', 'fr0z3nUI_AutoOpenFrame')
 function frame:RunScan()
+    if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
+    if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
     if atBank or atMail or InCombatLockdown() or LootFrame:IsShown() then return end
     if (GetTime() - lastOpenTime) < OPEN_COOLDOWN then return end
     
@@ -93,11 +173,22 @@ end
 
 -- [ EVENTS ]
 frame:RegisterEvent('BAG_UPDATE_DELAYED'); frame:RegisterEvent('PLAYER_LOGIN'); frame:RegisterEvent('PLAYER_REGEN_ENABLED')
+frame:RegisterEvent('PLAYER_ENTERING_WORLD')
 frame:RegisterEvent('BANKFRAME_OPENED'); frame:RegisterEvent('BANKFRAME_CLOSED'); frame:RegisterEvent('MAIL_SHOW'); frame:RegisterEvent('MAIL_CLOSED')
 
-frame:SetScript('OnEvent', function(self, event)
+frame:SetScript('OnEvent', function(self, event, ...)
     if event == "PLAYER_LOGIN" then 
         InitSV(); C_Timer.After(2, CheckTimersOnLogin)
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        local isInitialLogin, isReloadingUi = ...
+        InitSV()
+        local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
+        mode = tostring(mode):upper()
+        if mode == "ON" and isInitialLogin and not isReloadingUi then
+            C_Timer.After(5, ns.ShowGreatVault)
+        elseif mode == "RL" and isReloadingUi then
+            C_Timer.After(5, ns.ShowGreatVault)
+        end
     elseif event == "BANKFRAME_OPENED" then 
         atBank = true
     elseif event == "BANKFRAME_CLOSED" then 
@@ -129,6 +220,10 @@ end)
 local function AddItemByID(id, scope)
     if not id then print("|cff00ccff[FAO]|r Please enter a valid item ID.") return end
     InitSV()
+    if ns.items and ns.items[id] then
+        print("|cff00ccff[FAO]|r Already in addon database: "..(GetItemNameSafe(id) or id))
+        return
+    end
     if ns.exclude and ns.exclude[id] then
         local name = ns.exclude[id][1] or ("ID "..id)
         local reason = ns.exclude[id][2] or "Excluded"
@@ -136,22 +231,25 @@ local function AddItemByID(id, scope)
         return
     end
     if scope == "acc" then
-        if fr0z3nUI_AutoOpen_Acc[id] then print("|cff00ccff[FAO]|r Already in Account whitelist: "..(GetItemInfo and (GetItemInfo(id) or id) or id)) return end
+        if fr0z3nUI_AutoOpen_Acc[id] then print("|cff00ccff[FAO]|r Already in Account whitelist: "..(GetItemNameSafe(id) or id)) return end
         fr0z3nUI_AutoOpen_Acc[id] = true
     else
-        if fr0z3nUI_AutoOpen_Char[id] then print("|cff00ccff[FAO]|r Already in Character whitelist: "..(GetItemInfo and (GetItemInfo(id) or id) or id)) return end
+        if fr0z3nUI_AutoOpen_Char[id] then print("|cff00ccff[FAO]|r Already in Character whitelist: "..(GetItemNameSafe(id) or id)) return end
         fr0z3nUI_AutoOpen_Char[id] = true
     end
-    local iname = (GetItemInfo and GetItemInfo(id)) or tostring(id)
+    local iname = GetItemNameSafe(id) or tostring(id)
     print("|cff00ccff[FAO]|r Added: |cffffff00"..iname.."|r to "..(scope=="acc" and "Account" or "Character"))
 end
 
 local function CreateOptionsWindow()
     if fr0z3nUI_AutoOpenOptions then return end
+    InitSV()
     local f = CreateFrame("Frame", "fr0z3nUI_AutoOpenOptions", UIParent, "BackdropTemplate")
     fr0z3nUI_AutoOpenOptions = f
-    f:SetSize(300,150)
+    f:SetSize(280,170)
     f:SetPoint("CENTER")
+    f:SetClampedToScreen(true)
+    f:SetFrameStrata("DIALOG")
     f:EnableMouse(true)
     f:SetMovable(true)
     f:RegisterForDrag("LeftButton")
@@ -161,16 +259,16 @@ local function CreateOptionsWindow()
     f:SetBackdropColor(0,0,0,0.7)
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, -10)
+    title:SetPoint("TOP", 0, -8)
     title:SetText("fr0z3nUI AutoOpen")
 
     local info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    info:SetPoint("TOP", title, "BOTTOM", 0, -6)
+    info:SetPoint("TOP", title, "BOTTOM", 0, -4)
     info:SetText("Enter ItemID Below")
 
     local edit = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    edit:SetSize(180,36)
-    edit:SetPoint("TOP", info, "BOTTOM", 0, -4)
+    edit:SetSize(155,38)
+    edit:SetPoint("TOP", info, "BOTTOM", 0, -2)
     edit:SetAutoFocus(false)
     edit:SetMaxLetters(10)
     edit:SetTextInsets(6, 6, 0, 0)
@@ -184,7 +282,7 @@ local function CreateOptionsWindow()
     f.edit = edit
 
     local nameLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    nameLabel:SetPoint("TOP", edit, "BOTTOM", 0, -4)
+    nameLabel:SetPoint("TOP", edit, "BOTTOM", 0, -2)
     nameLabel:SetWidth(f:GetWidth() - 20)
     nameLabel:SetJustifyH("CENTER")
     nameLabel:SetWordWrap(true)
@@ -199,9 +297,14 @@ local function CreateOptionsWindow()
     reasonLabel:SetText("")
     f.reasonLabel = reasonLabel
 
+    local BTN_W, BTN_H = 125, 22
+    local PAD_X = 10
+    local ROW_TOP_Y = 38
+    local ROW_BOTTOM_Y = 10
+
     local btnChar = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    btnChar:SetSize(110,24)
-    btnChar:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -8, 10)
+    btnChar:SetSize(BTN_W, BTN_H)
+    btnChar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD_X, ROW_TOP_Y)
     btnChar:SetText("Character")
     btnChar:SetScript("OnClick", function()
         local id = f.validID or tonumber(edit:GetText() or "")
@@ -211,8 +314,8 @@ local function CreateOptionsWindow()
     f.btnChar = btnChar
 
     local btnAcc = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    btnAcc:SetSize(110,24)
-    btnAcc:SetPoint("BOTTOMLEFT", f, "BOTTOM", 8, 10)
+    btnAcc:SetSize(BTN_W, BTN_H)
+    btnAcc:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PAD_X, ROW_TOP_Y)
     btnAcc:SetText("Account")
     btnAcc:SetScript("OnClick", function()
         local id = f.validID or tonumber(edit:GetText() or "")
@@ -220,6 +323,83 @@ local function CreateOptionsWindow()
     end)
     btnAcc:Disable()
     f.btnAcc = btnAcc
+
+    local function UpdateAutoOpenButton()
+        InitSV()
+        local enabled = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false)
+        if f.btnAutoOpen then
+            f.btnAutoOpen:SetText("Auto Open: "..(enabled and "ON" or "OFF"))
+        end
+    end
+
+    local function UpdateGreatVaultButton()
+        InitSV()
+        local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
+        mode = tostring(mode):upper()
+        if f.btnGreatVault then
+            f.btnGreatVault:SetText("Great Vault: "..mode)
+        end
+    end
+
+    local btnAutoOpen = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    btnAutoOpen:SetSize(BTN_W, BTN_H)
+    btnAutoOpen:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PAD_X, ROW_BOTTOM_Y)
+    btnAutoOpen:SetScript("OnClick", function()
+        InitSV()
+        local enabled = (fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false)
+        fr0z3nUI_AutoOpen_CharSettings.autoOpen = not enabled
+        if fr0z3nUI_AutoOpen_CharSettings.autoOpen then
+            print("|cff00ccff[FAO]|r Auto Open: |cff00ff00ON|r")
+            C_Timer.After(0.1, function() if frame and frame.RunScan then frame:RunScan() end end)
+        else
+            print("|cff00ccff[FAO]|r Auto Open: |cffff0000OFF|r")
+        end
+        UpdateAutoOpenButton()
+    end)
+    f.btnAutoOpen = btnAutoOpen
+
+    local btnGreatVault = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    btnGreatVault:SetSize(BTN_W, BTN_H)
+    btnGreatVault:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD_X, ROW_BOTTOM_Y)
+    btnGreatVault:SetScript("OnClick", function()
+        InitSV()
+        local current = tostring(fr0z3nUI_AutoOpen_CharSettings.greatVaultMode or "OFF"):upper()
+        local nextMode
+        if current == "OFF" then nextMode = "ON"
+        elseif current == "ON" then nextMode = "RL"
+        else nextMode = "OFF" end
+        fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = nextMode
+
+        if nextMode == "OFF" then
+            print("|cff00ccff[FAO]|r AutoOpen Great Vault Off")
+        elseif nextMode == "ON" then
+            print("|cff00ccff[FAO]|r AutoOpen Great Vault On Login")
+            if ns and ns.ShowGreatVault then C_Timer.After(0.1, ns.ShowGreatVault) end
+        else
+            print("|cff00ccff[FAO]|r AutoOpen Great Vault On Reload")
+            if ns and ns.ShowGreatVault then C_Timer.After(0.1, ns.ShowGreatVault) end
+        end
+        UpdateGreatVaultButton()
+    end)
+    btnGreatVault:SetScript("OnEnter", function()
+        InitSV()
+        local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
+        mode = tostring(mode):upper()
+        if mode == "OFF" then
+            if GameTooltip then
+                GameTooltip:SetOwner(f, "ANCHOR_NONE")
+                GameTooltip:ClearAllPoints()
+                GameTooltip:SetPoint("LEFT", btnGreatVault, "RIGHT", 8, 0)
+                GameTooltip:SetText("Enable Great Vault")
+                GameTooltip:AddLine("AutoOpen at Login", 1, 1, 1, true)
+                GameTooltip:Show()
+            end
+        end
+    end)
+    btnGreatVault:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    f.btnGreatVault = btnGreatVault
 
     -- debounced validation function
     local function DoValidate()
@@ -244,7 +424,7 @@ local function CreateOptionsWindow()
 
         local req, lockedName = GetRequiredLevelForID(id)
         if req and UnitLevel and UnitLevel("player") < req then
-            local displayName = lockedName or (GetItemInfo and GetItemInfo(id)) or ("ID "..id)
+            local displayName = lockedName or GetItemNameSafe(id) or ("ID "..id)
             if f.nameLabel then f.nameLabel:SetText("|cffffff00"..displayName.."|r") end
             if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Requires level "..req.." (will not auto-open yet)|r") end
             f.validID = id
@@ -253,9 +433,9 @@ local function CreateOptionsWindow()
             return
         end
 
-        local iname = (GetItemInfo and GetItemInfo(id)) or ("ID "..id)
+        local iname = GetItemNameSafe(id)
         if ns.exclude and ns.exclude[id] then
-            local exName = ns.exclude[id][1] or iname
+            local exName = ns.exclude[id][1] or iname or ("ID "..id)
             local reason = ns.exclude[id][2] or "Excluded"
             if f.nameLabel then f.nameLabel:SetText("|cffffff00"..exName.."|r") end
             if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Excluded: "..reason.."|r") end
@@ -264,6 +444,7 @@ local function CreateOptionsWindow()
             if f.btnAcc then f.btnAcc:Disable() end
             return
         end
+
         if iname then
             if f.nameLabel then f.nameLabel:SetText("|cffffff00"..iname.."|r") end
             if f.reasonLabel then f.reasonLabel:SetText("") end
@@ -311,6 +492,14 @@ local function CreateOptionsWindow()
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -6, -6)
 
+    f:SetScript("OnShow", function()
+        InitSV()
+        UpdateAutoOpenButton()
+        UpdateGreatVaultButton()
+    end)
+
+    UpdateAutoOpenButton()
+    UpdateGreatVaultButton()
     f:Hide()
 end
 
@@ -318,12 +507,69 @@ end
 SLASH_FAO1 = "/fao"
 SlashCmdList["FAO"] = function(msg)
     InitSV()
+    local text = (msg and msg:gsub("^%s+", ""):gsub("%s+$", "")) or ""
+    local cmd, arg = text:match("^(%S+)%s*(%S*)")
+    cmd = cmd and cmd:lower() or nil
+    arg = arg and arg:lower() or ""
+
+    -- Subcommands
+    if cmd == "ao" then
+        if arg == "" or arg == "toggle" then
+            local enabled = (fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false)
+            fr0z3nUI_AutoOpen_CharSettings.autoOpen = not enabled
+            arg = fr0z3nUI_AutoOpen_CharSettings.autoOpen and "on" or "off"
+        end
+
+        if arg == "off" then
+            fr0z3nUI_AutoOpen_CharSettings.autoOpen = false
+            print("|cff00ccff[FAO]|r Auto Open: |cffff0000OFF|r")
+        elseif arg == "on" then
+            fr0z3nUI_AutoOpen_CharSettings.autoOpen = true
+            print("|cff00ccff[FAO]|r Auto Open: |cff00ff00ON|r")
+            C_Timer.After(0.1, function() if frame and frame.RunScan then frame:RunScan() end end)
+        else
+            print("|cff00ccff[FAO]|r Usage: /fao ao        - toggle auto open")
+            print("|cff00ccff[FAO]|r Usage: /fao ao on     - enable auto open")
+            print("|cff00ccff[FAO]|r Usage: /fao ao off    - disable auto open")
+        end
+        return
+    end
+
+    if cmd == "gv" or cmd == "greatvault" then
+        if arg == "" or arg == "toggle" then
+            local current = tostring(fr0z3nUI_AutoOpen_CharSettings.greatVaultMode or "OFF"):upper()
+            if current == "OFF" then fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "ON"
+            elseif current == "ON" then fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "RL"
+            else fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "OFF" end
+            arg = fr0z3nUI_AutoOpen_CharSettings.greatVaultMode:lower()
+        end
+
+        if arg == "off" then
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "OFF"
+            print("|cff00ccff[FAO]|r AutoOpen Great Vault Off")
+        elseif arg == "on" then
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "ON"
+            print("|cff00ccff[FAO]|r AutoOpen Great Vault On Login")
+            C_Timer.After(0.1, ns.ShowGreatVault)
+        elseif arg == "rl" or arg == "reload" then
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "RL"
+            print("|cff00ccff[FAO]|r AutoOpen Great Vault On Reload")
+            C_Timer.After(0.1, ns.ShowGreatVault)
+        else
+            print("|cff00ccff[FAO]|r Usage: /fao gv           - cycle OFF/ON/RL")
+            print("|cff00ccff[FAO]|r Usage: /fao gv off       - disable")
+            print("|cff00ccff[FAO]|r Usage: /fao gv on        - show at login")
+            print("|cff00ccff[FAO]|r Usage: /fao gv rl        - show on /reload")
+        end
+        return
+    end
+
+    -- Default behavior: open/toggle GUI and allow pasting an itemID
     CreateOptionsWindow()
 
     local f = fr0z3nUI_AutoOpenOptions
     if not f then return end
 
-    local text = (msg and msg:gsub("^%s+", ""):gsub("%s+$", "")) or ""
     local idText = text:match("(%d+)")
 
     if not f:IsShown() then
