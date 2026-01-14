@@ -1,0 +1,26 @@
+## Interface: 110007
+## Title: |cff00ccfffr0z3nUI|r AutoOpen
+## Notes: Modular auto-open system with expansion-specific databases.
+## Author: frozenights
+## Version: 2026.01.14
+## SavedVariables: fr0z3nUI_AutoOpen_Acc, fr0z3nUI_AutoOpen_Settings, fr0z3nUI_AutoOpen_Timers
+## SavedVariablesPerCharacter: fr0z3nUI_AutoOpen_Char
+
+# Database Modules
+fr0z3nUI_AutoOpenXX.lua
+fr0z3nUI_AutoOpenTR.lua
+fr0z3nUI_AutoOpen12.lua
+fr0z3nUI_AutoOpen11.lua
+fr0z3nUI_AutoOpen10.lua
+fr0z3nUI_AutoOpen09.lua
+fr0z3nUI_AutoOpen08.lua
+fr0z3nUI_AutoOpen07.lua
+fr0z3nUI_AutoOpen06.lua
+fr0z3nUI_AutoOpen05.lua
+fr0z3nUI_AutoOpen04.lua
+fr0z3nUI_AutoOpen03.lua
+fr0z3nUI_AutoOpen02.lua
+fr0z3nUI_AutoOpen01.lua
+
+# Engine logic
+fr0z3nUI_AutoOpen.lua
