@@ -1,8 +1,26 @@
-## WoW junk
+## WoW / addon dev junk
 SavedVariables/
 WTF/
 Logs/
+Cache/
+
+## Packaging / exports
+*.zip
+*.rar
+*.7z
+
+## Editor/IDE
+.vscode/
+.idea/
+*.code-workspace
 
 ## OS junk
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+## Temp files
+*.bak
+*.tmp
+*.swp
+*~
