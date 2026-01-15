@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+  "runtime.version": "Lua 5.1",
+  "workspace.checkThirdParty": false,
+  "type.weakUnionCheck": true,
+  "runtime.builtin": {
+    "basic": "disable",
+    "debug": "disable",
+    "io": "disable",
+    "math": "disable",
+    "os": "disable",
+    "package": "disable",
+    "string": "disable",
+    "table": "disable",
+    "utf8": "disable"
+  },
+  "diagnostics.globals": [
+    "SlashCmdList",
+    "DEFAULT_CHAT_FRAME",
+    "UIParent",
+    "TooltipDataProcessor",
+    "LootFrame",
+    "UIPanelButtonTemplate",
+    "InputBoxTemplate",
+    "UIPanelCloseButton",
+    "GameFontNormalLarge",
+    "GameFontHighlight",
+    "WeeklyRewardsFrame"
+  ]
+}
