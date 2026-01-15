@@ -459,7 +459,7 @@ local function CreateOptionsWindow()
     InitSV()
     local f = CreateFrame("Frame", "fr0z3nUI_AutoOpenOptions", UIParent, "BackdropTemplate")
     fr0z3nUI_AutoOpenOptions = f
-    f:SetSize(280,170)
+    f:SetSize(280,230)
     f:SetPoint("CENTER")
     f:SetClampedToScreen(true)
     f:SetFrameStrata("DIALOG")
@@ -514,6 +514,57 @@ local function CreateOptionsWindow()
     local PAD_X = 10
     local ROW_TOP_Y = 38
     local ROW_BOTTOM_Y = 10
+    local SLIDER_Y = 74
+
+    local cooldownLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    cooldownLabel:SetPoint("BOTTOM", f, "BOTTOM", 0, SLIDER_Y + 18)
+    cooldownLabel:SetText(string.format("Open Cooldown: %.1fs", GetOpenCooldown()))
+    f.cooldownLabel = cooldownLabel
+
+    local cdSlider = CreateFrame("Slider", nil, f, "UISliderTemplate")
+    cdSlider:SetPoint("BOTTOM", f, "BOTTOM", 0, SLIDER_Y)
+    cdSlider:SetSize(220, 18)
+    cdSlider:SetMinMaxValues(0, 10)
+    cdSlider:SetValueStep(0.1)
+    if cdSlider.SetObeyStepOnDrag then cdSlider:SetObeyStepOnDrag(true) end
+    f.cdSlider = cdSlider
+
+    local cdLow = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    cdLow:SetPoint("TOPLEFT", cdSlider, "BOTTOMLEFT", 0, -2)
+    cdLow:SetText("0.0s")
+
+    local cdHigh = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    cdHigh:SetPoint("TOPRIGHT", cdSlider, "BOTTOMRIGHT", 0, -2)
+    cdHigh:SetText("10.0s")
+
+    local function UpdateCooldownControls()
+        InitSV()
+        local current = GetOpenCooldown()
+        if f.cdSlider then
+            f.cdSlider._setting = true
+            f.cdSlider:SetValue(current)
+            f.cdSlider._setting = false
+        end
+        if f.cooldownLabel then
+            f.cooldownLabel:SetText(string.format("Open Cooldown: %.1fs", current))
+        end
+    end
+
+    cdSlider:SetScript("OnValueChanged", function(self, value)
+        if self._setting then return end
+        InitSV()
+        local rounded = math.floor((tonumber(value) or 0) * 10 + 0.5) / 10
+        local newCd = NormalizeCooldown(rounded)
+        fr0z3nUI_AutoOpen_Settings.cooldown = newCd
+
+        self._setting = true
+        self:SetValue(newCd)
+        self._setting = false
+
+        if f.cooldownLabel then
+            f.cooldownLabel:SetText(string.format("Open Cooldown: %.1fs", newCd))
+        end
+    end)
 
     local btnChar = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     btnChar:SetSize(BTN_W, BTN_H)
@@ -710,10 +761,12 @@ local function CreateOptionsWindow()
         InitSV()
         UpdateAutoOpenButton()
         UpdateGreatVaultButton()
+        UpdateCooldownControls()
     end)
 
     UpdateAutoOpenButton()
     UpdateGreatVaultButton()
+    UpdateCooldownControls()
     f:Hide()
 end
 
