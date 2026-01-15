@@ -1,7 +1,55 @@
 local addonName, ns = ...
 local lastOpenTime, atBank, atMail = 0, false, false
-local OPEN_COOLDOWN = 1.5
 local didPruneCustomWhitelists = false
+
+local function NormalizeCooldown(value)
+    local cd = tonumber(value)
+    if not cd then return 2 end
+    if cd < 0 then cd = 0 end
+    if cd > 10 then cd = 10 end
+    return cd
+end
+
+local function GetOpenCooldown()
+    if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.cooldown ~= nil then
+        return NormalizeCooldown(fr0z3nUI_AutoOpen_Settings.cooldown)
+    end
+    return 2
+end
+
+local function GetItemGUIDForBagSlot(bag, slot)
+    if not (ItemLocation and ItemLocation.CreateFromBagAndSlot and C_Item and C_Item.GetItemGUID) then return nil end
+    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+    if not (loc and loc.IsValid and loc:IsValid()) then return nil end
+    return C_Item.GetItemGUID(loc)
+end
+
+local function FindBagSlotByGUID(guid)
+    if not guid then return nil end
+    for b = 0, 4 do
+        for s = 1, C_Container.GetContainerNumSlots(b) do
+            local g = GetItemGUIDForBagSlot(b, s)
+            if g and g == guid then
+                return b, s
+            end
+        end
+    end
+    return nil
+end
+
+local function FindBagSlotsByItemID(id)
+    local out = {}
+    if not id then return out end
+    for b = 0, 4 do
+        for s = 1, C_Container.GetContainerNumSlots(b) do
+            local slotID = C_Container.GetContainerItemID(b, s)
+            if slotID and slotID == id then
+                out[#out + 1] = { bag = b, slot = s, guid = GetItemGUIDForBagSlot(b, s) }
+            end
+        end
+    end
+    return out
+end
 
 local function GetRequiredLevelForID(id)
     if not (ns and ns.levelLocked and id) then return nil end
@@ -34,6 +82,12 @@ local function InitSV()
     fr0z3nUI_AutoOpen_Settings = fr0z3nUI_AutoOpen_Settings or { disabled = {} }
     fr0z3nUI_AutoOpen_CharSettings = fr0z3nUI_AutoOpen_CharSettings or {}
 
+    if fr0z3nUI_AutoOpen_Settings.cooldown == nil then
+        fr0z3nUI_AutoOpen_Settings.cooldown = 2
+    else
+        fr0z3nUI_AutoOpen_Settings.cooldown = NormalizeCooldown(fr0z3nUI_AutoOpen_Settings.cooldown)
+    end
+
     -- Great Vault is stored per-character as a 3-state mode:
     -- OFF = disabled, ON = show at login, RL = show on /reload.
     -- Migration: older versions used fr0z3nUI_GreatVault_CharSettings.enabled or fr0z3nUI_AutoOpen_CharSettings.greatVault (boolean).
@@ -41,9 +95,11 @@ local function InitSV()
         if type(fr0z3nUI_AutoOpen_CharSettings.greatVault) == "boolean" then
             fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = fr0z3nUI_AutoOpen_CharSettings.greatVault and "ON" or "OFF"
             fr0z3nUI_AutoOpen_CharSettings.greatVault = nil
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched = true
         elseif type(fr0z3nUI_GreatVault_CharSettings) == "table" and fr0z3nUI_GreatVault_CharSettings.enabled ~= nil then
             fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = fr0z3nUI_GreatVault_CharSettings.enabled and "ON" or "OFF"
             fr0z3nUI_GreatVault_CharSettings = nil
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched = true
         else
             fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "OFF"
         end
@@ -77,6 +133,32 @@ local function InitSV()
     end
 end
 
+local function GetMaxPlayerLevelSafe()
+    if GetMaxPlayerLevel then
+        local max = GetMaxPlayerLevel()
+        if type(max) == "number" and max > 0 then return max end
+    end
+    return nil
+end
+
+local function AutoEnableGreatVaultAtMaxLevel()
+    if not (UnitLevel and fr0z3nUI_AutoOpen_CharSettings) then return end
+    local maxLevel = GetMaxPlayerLevelSafe()
+    if not maxLevel then return false end
+
+    local level = UnitLevel("player")
+    if not (type(level) == "number" and level >= maxLevel) then return false end
+
+    -- Respect explicit user choice. If untouched, default to ON at level cap.
+    if fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched then return false end
+    local mode = tostring(fr0z3nUI_AutoOpen_CharSettings.greatVaultMode or "OFF"):upper()
+    if mode == "OFF" then
+        fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "ON"
+        return true
+    end
+    return false
+end
+
 -- [ GREAT VAULT ]
 local function ShowGreatVaultCore()
     if C_AddOns and C_AddOns.LoadAddOn then
@@ -104,33 +186,66 @@ end
 local function CheckTimersOnLogin()
     if not fr0z3nUI_AutoOpen_Timers then return end
     local currentTime, foundAny = time(), false
-    for slotKey, data in pairs(fr0z3nUI_AutoOpen_Timers) do
-        local b, s = slotKey:match("(%d+)-(%d+)")
-        if b and s then
-            b, s = tonumber(b), tonumber(s)
-            if b and s then
-                local currentID = C_Container.GetContainerItemID(b, s)
-                local id = data and tonumber(data.id)
-                if id and ns.timed and ns.timed[id] then
-                    local duration = tonumber(ns.timed[id][1])
-                    local startTime = tonumber(data.startTime)
-                    if duration and startTime then
-                        local remaining = duration - (currentTime - startTime)
-                        if currentID ~= id then
-                            if remaining > 0 then print("|cff00ccff[FAO]|r Timer Disrupted: |cffffff00"..ns.timed[id][2].."|r moved.") end
-                            fr0z3nUI_AutoOpen_Timers[slotKey] = nil
-                        elseif remaining > 0 then
-                            local d = math.floor(remaining / 86400)
-                            local h = math.floor((remaining % 86400) / 3600)
-                            local m = math.ceil((remaining % 3600) / 60)
-                            print(string.format("|cff00ccff[FAO]|r Timer: |cffffff00%s|r - |cffff0000%dd %dh %dm|r left.", ns.timed[id][2], d, h, m))
-                            foundAny = true
-                        else
-                            fr0z3nUI_AutoOpen_Timers[slotKey] = nil
+    for key, data in pairs(fr0z3nUI_AutoOpen_Timers) do
+        local id = data and tonumber(data.id)
+        if not (id and ns.timed and ns.timed[id]) then
+            fr0z3nUI_AutoOpen_Timers[key] = nil
+        else
+            local duration = tonumber(ns.timed[id][1])
+            local startTime = tonumber(data.startTime)
+            if not (duration and startTime) then
+                fr0z3nUI_AutoOpen_Timers[key] = nil
+            else
+                local remaining = duration - (currentTime - startTime)
+                if remaining <= 0 then
+                    fr0z3nUI_AutoOpen_Timers[key] = nil
+                else
+                    local b, s
+
+                    -- New format: key is item GUID (stable across bag cleanup).
+                    if type(key) == "string" and not key:match("^%d+%-%d+$") then
+                        b, s = FindBagSlotByGUID(key)
+                        if not (b and s) then
+                            fr0z3nUI_AutoOpen_Timers[key] = nil
                         end
                     else
-                        -- Invalid timer entry, clear it.
-                        fr0z3nUI_AutoOpen_Timers[slotKey] = nil
+                        -- Legacy format: key is "bag-slot".
+                        local lb, ls = tostring(key):match("(%d+)%-(%d+)")
+                        lb, ls = tonumber(lb), tonumber(ls)
+                        if lb and ls then
+                            local currentID = C_Container.GetContainerItemID(lb, ls)
+                            if currentID == id then
+                                b, s = lb, ls
+                            else
+                                -- Try to relocate: if exactly one matching item is found, migrate to GUID/slot.
+                                local matches = FindBagSlotsByItemID(id)
+                                if #matches == 1 then
+                                    b, s = matches[1].bag, matches[1].slot
+                                    local guid = matches[1].guid
+                                    local newKey = guid or GetSlotKey(b, s)
+                                    if newKey ~= key then
+                                        fr0z3nUI_AutoOpen_Timers[newKey] = { id = id, startTime = startTime }
+                                        fr0z3nUI_AutoOpen_Timers[key] = nil
+                                        key = newKey
+                                    end
+                                elseif #matches == 0 then
+                                    -- Item disappeared (commonly hatched/consumed); clear silently.
+                                    fr0z3nUI_AutoOpen_Timers[key] = nil
+                                else
+                                    fr0z3nUI_AutoOpen_Timers[key] = nil
+                                end
+                            end
+                        else
+                            fr0z3nUI_AutoOpen_Timers[key] = nil
+                        end
+                    end
+
+                    if fr0z3nUI_AutoOpen_Timers[key] and b and s then
+                        local d = math.floor(remaining / 86400)
+                        local h = math.floor((remaining % 86400) / 3600)
+                        local m = math.ceil((remaining % 3600) / 60)
+                        print(string.format("|cff00ccff[FAO]|r Timer: |cffffff00%s|r - |cffff0000%dd %dh %dm|r left.", ns.timed[id][2], d, h, m))
+                        foundAny = true
                     end
                 end
             end
@@ -144,7 +259,7 @@ function frame:RunScan()
     if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
     if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
     if atBank or atMail or InCombatLockdown() or LootFrame:IsShown() then return end
-    if (GetTime() - lastOpenTime) < OPEN_COOLDOWN then return end
+    if (GetTime() - lastOpenTime) < GetOpenCooldown() then return end
     
     for b = 0, 4 do
         for s = 1, C_Container.GetContainerNumSlots(b) do
@@ -153,11 +268,21 @@ function frame:RunScan()
                 -- Handle Timers
                 local isHatching = false
                 if ns.timed and ns.timed[id] then
-                    local key = GetSlotKey(b, s)
+                    local legacyKey = GetSlotKey(b, s)
+                    local guid = GetItemGUIDForBagSlot(b, s)
+                    local key = guid or legacyKey
                     fr0z3nUI_AutoOpen_Timers = fr0z3nUI_AutoOpen_Timers or {}
                     local now = time and time() or nil
                     local hatchTime = tonumber(ns.timed[id][1])
                     if now and hatchTime then
+                        -- Migrate any existing legacy slot-based timer to GUID-based when possible.
+                        if guid and fr0z3nUI_AutoOpen_Timers[legacyKey] and not fr0z3nUI_AutoOpen_Timers[guid] then
+                            local old = fr0z3nUI_AutoOpen_Timers[legacyKey]
+                            fr0z3nUI_AutoOpen_Timers[guid] = { id = old.id, startTime = old.startTime }
+                            fr0z3nUI_AutoOpen_Timers[legacyKey] = nil
+                            key = guid
+                        end
+
                         local entry = fr0z3nUI_AutoOpen_Timers[key]
                         local startTime = entry and tonumber(entry.startTime) or nil
                         if type(entry) ~= "table" or entry.id ~= id or not startTime then
@@ -194,6 +319,7 @@ end
 -- [ EVENTS ]
 frame:RegisterEvent('BAG_UPDATE_DELAYED'); frame:RegisterEvent('PLAYER_LOGIN'); frame:RegisterEvent('PLAYER_REGEN_ENABLED')
 frame:RegisterEvent('PLAYER_ENTERING_WORLD')
+frame:RegisterEvent('PLAYER_LEVEL_UP')
 frame:RegisterEvent('BANKFRAME_OPENED'); frame:RegisterEvent('BANKFRAME_CLOSED'); frame:RegisterEvent('MAIL_SHOW'); frame:RegisterEvent('MAIL_CLOSED')
 
 frame:SetScript('OnEvent', function(self, event, ...)
@@ -202,12 +328,24 @@ frame:SetScript('OnEvent', function(self, event, ...)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         InitSV()
+        AutoEnableGreatVaultAtMaxLevel()
         local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
         mode = tostring(mode):upper()
         if mode == "ON" and isInitialLogin and not isReloadingUi then
             C_Timer.After(5, ns.ShowGreatVault)
         elseif mode == "RL" and isReloadingUi then
             C_Timer.After(5, ns.ShowGreatVault)
+        end
+    elseif event == "PLAYER_LEVEL_UP" then
+        local newLevel = ...
+        InitSV()
+        local maxLevel = GetMaxPlayerLevelSafe()
+        newLevel = tonumber(newLevel)
+        if maxLevel and newLevel and newLevel >= maxLevel then
+            local changed = AutoEnableGreatVaultAtMaxLevel()
+            if changed then
+                print("|cff00ccff[FAO]|r AutoOpen Great Vault On Login (|cffffff00/fao|r)")
+            end
         end
     elseif event == "BANKFRAME_OPENED" then 
         atBank = true
@@ -260,15 +398,30 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
         local duration = tonumber(ns.timed[data.id][1])
         local now = time()
         if duration and now then
-            for _, tData in pairs(fr0z3nUI_AutoOpen_Timers) do
-                if tData and tData.id == data.id then
-                    local startTime = tonumber(tData.startTime)
-                    if startTime then
-                        local rem = duration - (now - startTime)
-                        if rem > 0 then
-                            tooltip:AddLine(" ")
-                            tooltip:AddLine(string.format("|cff00ccffHatching In:|r |cffff0000%dd %dh %dm|r", math.floor(rem/86400), math.floor((rem%86400)/3600), math.ceil((rem%3600)/60)))
+            local guid = data.guid or data.itemGUID
+            local tData = guid and fr0z3nUI_AutoOpen_Timers[guid] or nil
+            if tData and tData.id == data.id then
+                local startTime = tonumber(tData.startTime)
+                if startTime then
+                    local rem = duration - (now - startTime)
+                    if rem > 0 then
+                        tooltip:AddLine(" ")
+                        tooltip:AddLine(string.format("|cff00ccffHatching In:|r |cffff0000%dd %dh %dm|r", math.floor(rem/86400), math.floor((rem%86400)/3600), math.ceil((rem%3600)/60)))
+                    end
+                end
+            else
+                -- Fallback: legacy timers or tooltips without GUID.
+                for _, anyData in pairs(fr0z3nUI_AutoOpen_Timers) do
+                    if anyData and anyData.id == data.id then
+                        local startTime = tonumber(anyData.startTime)
+                        if startTime then
+                            local rem = duration - (now - startTime)
+                            if rem > 0 then
+                                tooltip:AddLine(" ")
+                                tooltip:AddLine(string.format("|cff00ccffHatching In:|r |cffff0000%dd %dh %dm|r", math.floor(rem/86400), math.floor((rem%86400)/3600), math.ceil((rem%3600)/60)))
+                            end
                         end
+                        break
                     end
                 end
             end
@@ -429,6 +582,7 @@ local function CreateOptionsWindow()
         elseif current == "ON" then nextMode = "RL"
         else nextMode = "OFF" end
         fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = nextMode
+        fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched = true
 
         if nextMode == "OFF" then
             print("|cff00ccff[FAO]|r AutoOpen Great Vault Off")
@@ -565,12 +719,32 @@ end
 
 -- /fao opens the GUI (no /fao add)
 SLASH_FAO1 = "/fao"
+SLASH_FAO2 = "/frozenautoopen"
 SlashCmdList["FAO"] = function(msg)
     InitSV()
     local text = (msg and msg:gsub("^%s+", ""):gsub("%s+$", "")) or ""
     local cmd, arg = text:match("^(%S+)%s*(%S*)")
     cmd = cmd and cmd:lower() or nil
     arg = arg and arg:lower() or ""
+
+    if cmd == "cd" or cmd == "cooldown" then
+        if arg == "" then
+            print(string.format("|cff00ccff[FAO]|r Cooldown: |cffffff00%.1fs|r", GetOpenCooldown()))
+            return
+        end
+
+        local raw = tonumber(arg)
+        if not raw then
+            print("|cff00ccff[FAO]|r Usage: /fao cd <seconds>")
+            print(string.format("|cff00ccff[FAO]|r Current: |cffffff00%.1fs|r", GetOpenCooldown()))
+            return
+        end
+
+        local newCd = NormalizeCooldown(raw)
+        fr0z3nUI_AutoOpen_Settings.cooldown = newCd
+        print(string.format("|cff00ccff[FAO]|r Cooldown set to: |cffffff00%.1fs|r", newCd))
+        return
+    end
 
     -- Subcommands
     if cmd == "ao" then
@@ -606,13 +780,16 @@ SlashCmdList["FAO"] = function(msg)
 
         if arg == "off" then
             fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "OFF"
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched = true
             print("|cff00ccff[FAO]|r AutoOpen Great Vault Off")
         elseif arg == "on" then
             fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "ON"
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched = true
             print("|cff00ccff[FAO]|r AutoOpen Great Vault On Login")
             C_Timer.After(0.1, ns.ShowGreatVault)
         elseif arg == "rl" or arg == "reload" then
             fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "RL"
+            fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched = true
             print("|cff00ccff[FAO]|r AutoOpen Great Vault On Reload")
             C_Timer.After(0.1, ns.ShowGreatVault)
         else
