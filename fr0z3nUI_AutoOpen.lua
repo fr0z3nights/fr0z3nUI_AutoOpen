@@ -76,11 +76,70 @@ local function GetItemNameSafe(id)
     return nil
 end
 
+local function GetOpenableTooltipLineText()
+    return (_G and _G["ITEM_OPENABLE"]) or nil
+end
+
+local function TooltipSuggestsOpenable(id)
+    if not (id and C_TooltipInfo and C_TooltipInfo.GetItemByID) then return nil end
+    local tip = C_TooltipInfo.GetItemByID(id)
+    if not (tip and tip.lines) then return nil end
+
+    local openableText = GetOpenableTooltipLineText()
+    if not openableText then return nil end
+
+    for _, line in ipairs(tip.lines) do
+        local left = line and line.leftText
+        local right = line and line.rightText
+        if left == openableText or right == openableText then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsProbablyOpenableCacheID(id)
+    if not id then return false, "invalid" end
+
+    -- User override: allow manual IDs without the cache/openable validation.
+    if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck == false then
+        return true, "bypass"
+    end
+
+    -- If it looks equippable, it's almost certainly not an openable cache.
+    if C_Item and C_Item.GetItemInfoInstant then
+        local _, _, _, equipLoc = C_Item.GetItemInfoInstant(id)
+        if type(equipLoc) == "string" and equipLoc ~= "" then
+            return false, "equippable"
+        end
+    end
+
+    -- Prefer tooltip truth: caches/lockboxes usually show the localized 'Right Click to Open'.
+    local tip = TooltipSuggestsOpenable(id)
+    if tip == nil then
+        if C_Item and C_Item.RequestLoadItemDataByID then
+            C_Item.RequestLoadItemDataByID(id)
+        end
+        return nil, "loading"
+    end
+    if tip == true then
+        return true
+    end
+    return false, "no_open_line"
+end
+
 local function InitSV()
     fr0z3nUI_AutoOpen_Acc = fr0z3nUI_AutoOpen_Acc or {}
     fr0z3nUI_AutoOpen_Char = fr0z3nUI_AutoOpen_Char or {}
     fr0z3nUI_AutoOpen_Settings = fr0z3nUI_AutoOpen_Settings or { disabled = {} }
     fr0z3nUI_AutoOpen_CharSettings = fr0z3nUI_AutoOpen_CharSettings or {}
+
+    if type(fr0z3nUI_AutoOpen_Settings.disabled) ~= "table" then
+        fr0z3nUI_AutoOpen_Settings.disabled = {}
+    end
+    if type(fr0z3nUI_AutoOpen_CharSettings.disabled) ~= "table" then
+        fr0z3nUI_AutoOpen_CharSettings.disabled = {}
+    end
 
     if fr0z3nUI_AutoOpen_Settings.cooldown == nil then
         fr0z3nUI_AutoOpen_Settings.cooldown = 2
@@ -112,6 +171,48 @@ local function InitSV()
         else
             fr0z3nUI_AutoOpen_CharSettings.autoOpen = true
         end
+    end
+
+    -- Talent reminder (per-character)
+    -- Modes:
+    -- OFF   = disabled
+    -- LOGIN = only initial login
+    -- RL    = only /reload
+    -- WORLD = any non-initial PLAYER_ENTERING_WORLD (reload + portals/instances)
+    -- Default: WORLD
+    if fr0z3nUI_AutoOpen_CharSettings.talentMode == nil then
+        -- Migration: older builds briefly stored this account-wide.
+        if type(fr0z3nUI_AutoOpen_Settings.talentMode) == "string" and fr0z3nUI_AutoOpen_Settings.talentMode ~= "" then
+            fr0z3nUI_AutoOpen_CharSettings.talentMode = tostring(fr0z3nUI_AutoOpen_Settings.talentMode):upper()
+        else
+            fr0z3nUI_AutoOpen_CharSettings.talentMode = "WORLD"
+        end
+    end
+    fr0z3nUI_AutoOpen_Settings.talentMode = nil
+
+    -- Talent UI auto-open (3-state)
+    -- OFF     = off (per-character)
+    -- ON      = on (per-character)
+    -- ON ACC  = on account-wide override (overrides character)
+    -- Defaults: character OFF, account override unset
+    if type(fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen) ~= "boolean" then
+        local legacy = tostring(fr0z3nUI_AutoOpen_CharSettings.talentUIMode or "OFF"):upper()
+        fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen = (legacy == "ON" or legacy == "RL" or legacy == "WORLD")
+    end
+    fr0z3nUI_AutoOpen_CharSettings.talentUIMode = nil
+
+    -- Migration: older builds stored this account-wide as talentAutoOpen.
+    -- Treat that as the account override (ON ACC) to preserve behavior.
+    if type(fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount) ~= "boolean" then
+        if type(fr0z3nUI_AutoOpen_Settings.talentAutoOpen) == "boolean" then
+            fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = fr0z3nUI_AutoOpen_Settings.talentAutoOpen
+        end
+    end
+    fr0z3nUI_AutoOpen_Settings.talentAutoOpen = nil
+
+    -- Cache Lock (per-character): when OFF, bypass openable-cache validation for manual adds.
+    if fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck == nil then
+        fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck = true
     end
     fr0z3nUI_AutoOpen_Timers = fr0z3nUI_AutoOpen_Timers or {}
 
@@ -179,6 +280,198 @@ ns.ShowGreatVault = function()
     mode = tostring(mode):upper()
     if mode ~= "OFF" then
         ShowGreatVaultCore()
+    end
+end
+
+-- [ TALENTS ]
+local lastTalentNotifyAt, lastTalentNotifiedPoints = 0, nil
+local didTryLoadTalentAddonsForPoints = false
+local talentCheckSeq = 0
+
+local function GetUnspentTalentPointsSafe()
+    local function Query()
+        local total = 0
+        local any = false
+        local classPoints, heroPoints
+
+        if C_ClassTalents then
+            if C_ClassTalents.GetUnspentTalentPoints then
+                local p = C_ClassTalents.GetUnspentTalentPoints()
+                if type(p) == "number" then
+                    classPoints = p
+                    total = total + p
+                    any = true
+                end
+            end
+            if C_ClassTalents.GetUnspentHeroTalentPoints then
+                local p = C_ClassTalents.GetUnspentHeroTalentPoints()
+                if type(p) == "number" then
+                    heroPoints = p
+                    total = total + p
+                    any = true
+                end
+            end
+        end
+
+        if not any then return nil end
+        return total, classPoints, heroPoints
+    end
+
+    local total, classPoints, heroPoints = Query()
+    if total == nil and not didTryLoadTalentAddonsForPoints then
+        didTryLoadTalentAddonsForPoints = true
+        if C_AddOns and C_AddOns.LoadAddOn then
+            -- Some clients don't populate talent APIs until these are loaded.
+            C_AddOns.LoadAddOn("Blizzard_PlayerSpells")
+            C_AddOns.LoadAddOn("Blizzard_ClassTalentUI")
+            C_AddOns.LoadAddOn("Blizzard_TalentUI")
+        end
+        total, classPoints, heroPoints = Query()
+    end
+
+    return total, classPoints, heroPoints
+end
+
+local function HasUnspentTalentPointsSafe()
+    if C_ClassTalents and C_ClassTalents.HasUnspentTalentPoints then
+        local ok, v = pcall(C_ClassTalents.HasUnspentTalentPoints)
+        if ok and type(v) == "boolean" then
+            return v
+        end
+    end
+    return nil
+end
+
+local function GetTalentAutoOpenMode()
+    -- Account override wins when explicitly enabled.
+    if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount == true then
+        return "ACC", true
+    end
+    local on = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen) and true or false
+    return on and "CHAR" or "OFF", on
+end
+
+local function ShowTalentsUI()
+    if InCombatLockdown and InCombatLockdown() then
+        return false
+    end
+
+    if C_AddOns and C_AddOns.LoadAddOn then
+        C_AddOns.LoadAddOn("Blizzard_PlayerSpells")
+        C_AddOns.LoadAddOn("Blizzard_ClassTalentUI")
+        C_AddOns.LoadAddOn("Blizzard_TalentUI")
+    end
+
+    local togglePlayerSpellsFrame = _G and _G["TogglePlayerSpellsFrame"]
+    if type(togglePlayerSpellsFrame) == "function" then
+        togglePlayerSpellsFrame()
+        return true
+    end
+
+    local playerSpellsFrame = _G and _G["PlayerSpellsFrame"]
+    if playerSpellsFrame and playerSpellsFrame.Show then
+        playerSpellsFrame:Show()
+        return true
+    end
+
+    local classTalentFrame = _G and _G["ClassTalentFrame"]
+    if classTalentFrame and classTalentFrame.Show then
+        classTalentFrame:Show()
+        return true
+    end
+
+    local toggleTalentFrame = _G and _G["ToggleTalentFrame"]
+    if type(toggleTalentFrame) == "function" then
+        toggleTalentFrame()
+        return true
+    end
+    return false
+end
+
+local function ShouldTalentTrigger(mode, isInitialLogin, isReloadingUi)
+    mode = tostring(mode or "OFF"):upper()
+    if mode == "OFF" then return false end
+    if mode == "LOGIN" then return isInitialLogin and not isReloadingUi end
+    if mode == "RL" then return isReloadingUi end
+    if mode == "WORLD" then return not isInitialLogin end
+    if mode == "ALL" then return true end
+    return false
+end
+
+local function MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt, seq)
+    InitSV()
+    attempt = tonumber(attempt) or 0
+    isInitialLogin = isInitialLogin and true or false
+    isReloadingUi = isReloadingUi and true or false
+
+    if seq ~= nil and seq ~= talentCheckSeq then return end
+
+    local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.talentMode) or "WORLD"
+    if not ShouldTalentTrigger(mode, isInitialLogin, isReloadingUi) then return end
+
+    local now = (GetTime and GetTime()) or 0
+    if now > 0 and (now - lastTalentNotifyAt) < 10 then return end
+
+    local points, classPoints, heroPoints = GetUnspentTalentPointsSafe()
+    if points == nil then
+        local hasAny = HasUnspentTalentPointsSafe()
+        if hasAny == false then
+            return
+        elseif hasAny == true then
+            -- We know there are unspent points, but the numeric APIs aren't ready.
+            if now > 0 and (now - lastTalentNotifyAt) < 10 then return end
+            lastTalentNotifyAt = now
+            lastTalentNotifiedPoints = "?"
+
+            local _, shouldOpenUI = GetTalentAutoOpenMode()
+            if shouldOpenUI then
+                local ok = ShowTalentsUI()
+                if ok then
+                    print("|cff00ccff[FAO]|r Unspent talent points available — check talents")
+                else
+                    print("|cff00ccff[FAO]|r Unspent talent points available — cannot open talents in combat")
+                end
+            else
+                print("|cff00ccff[FAO]|r Unspent talent points available")
+            end
+
+            -- Best-effort follow-up to get the actual numeric count once APIs warm up.
+            C_Timer.After(2, function()
+                MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt + 1, seq)
+            end)
+            return
+        end
+
+        -- Talent APIs can be unavailable for a few seconds after reload/zone.
+        if attempt < 60 then
+            C_Timer.After(1, function()
+                MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt + 1, seq)
+            end)
+        end
+        return
+    end
+    if not (points and points > 0) then return end
+
+    if lastTalentNotifiedPoints == points and now > 0 and (now - lastTalentNotifyAt) < 60 then return end
+    lastTalentNotifiedPoints = points
+    lastTalentNotifyAt = now
+
+    local breakdown = ""
+    if type(classPoints) == "number" or type(heroPoints) == "number" then
+        breakdown = string.format(" (class %s, hero %s)", tostring(classPoints or 0), tostring(heroPoints or 0))
+    end
+
+    local _, shouldOpenUI = GetTalentAutoOpenMode()
+
+    if shouldOpenUI then
+        local ok = ShowTalentsUI()
+        if ok then
+            print("|cff00ccff[FAO]|r Unspent talent points: |cffffff00"..points.."|r"..breakdown)
+        else
+            print("|cff00ccff[FAO]|r Unspent talent points: |cffffff00"..points.."|r"..breakdown.." (cannot open talents in combat)")
+        end
+    else
+        print("|cff00ccff[FAO]|r Unspent talent points: |cffffff00"..points.."|r"..breakdown)
     end
 end
 
@@ -303,7 +596,10 @@ function frame:RunScan()
                     local req = GetRequiredLevelForID(id)
                     if req and UnitLevel and UnitLevel("player") < req then
                         -- Level-locked openable: do not auto-open yet
-                    elseif not ns.exclude[id] and not fr0z3nUI_AutoOpen_Settings.disabled[id] then
+                    elseif not ns.exclude[id]
+                        and not (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id])
+                        and not (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id])
+                    then
                         local info = C_Container.GetContainerItemInfo(b, s)
                         if info and info.hasLoot and not info.isLocked then
                             print("|cff00ccff[FAO]|r Opening ".. (info.hyperlink or id))
@@ -327,6 +623,8 @@ frame:SetScript('OnEvent', function(self, event, ...)
         InitSV(); C_Timer.After(2, CheckTimersOnLogin)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
+        isInitialLogin = isInitialLogin and true or false
+        isReloadingUi = isReloadingUi and true or false
         InitSV()
         AutoEnableGreatVaultAtMaxLevel()
         local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
@@ -336,6 +634,13 @@ frame:SetScript('OnEvent', function(self, event, ...)
         elseif mode == "RL" and isReloadingUi then
             C_Timer.After(5, ns.ShowGreatVault)
         end
+
+        -- Talents: useful on /reload, portals, and instance transitions.
+        talentCheckSeq = talentCheckSeq + 1
+        local seq = talentCheckSeq
+        C_Timer.After(2, function()
+            MaybeHandleTalents(isInitialLogin, isReloadingUi, 0, seq)
+        end)
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = ...
         InitSV()
@@ -443,12 +748,32 @@ local function AddItemByID(id, scope)
         print("|cff00ccff[FAO]|r Excluded: |cffffff00"..name.."|r - "..reason)
         return
     end
+
+    -- Guard: avoid adding non-openable items (e.g., gear).
+    local ok, why = IsProbablyOpenableCacheID(id)
+    if ok == nil then
+        print("|cff00ccff[FAO]|r Item data still loading for ID "..id..". Try again in a second.")
+        return
+    end
+    if ok == false then
+        local reason = "Not an openable cache"
+        if why == "equippable" then reason = "This looks equippable (not a cache)" end
+        if why == "no_open_line" then reason = "No 'Right Click to Open' tooltip line" end
+        print("|cff00ccff[FAO]|r Not added: |cffffff00"..(GetItemNameSafe(id) or ("ID "..id)).."|r - "..reason)
+        return
+    end
     if scope == "acc" then
         if fr0z3nUI_AutoOpen_Acc[id] then print("|cff00ccff[FAO]|r Already in Account whitelist: "..(GetItemNameSafe(id) or id)) return end
         fr0z3nUI_AutoOpen_Acc[id] = true
+        if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled then
+            fr0z3nUI_AutoOpen_Settings.disabled[id] = nil
+        end
     else
         if fr0z3nUI_AutoOpen_Char[id] then print("|cff00ccff[FAO]|r Already in Character whitelist: "..(GetItemNameSafe(id) or id)) return end
         fr0z3nUI_AutoOpen_Char[id] = true
+        if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled then
+            fr0z3nUI_AutoOpen_CharSettings.disabled[id] = nil
+        end
     end
     local iname = GetItemNameSafe(id) or tostring(id)
     print("|cff00ccff[FAO]|r Added: |cffffff00"..iname.."|r to "..(scope=="acc" and "Account" or "Character"))
@@ -459,7 +784,21 @@ local function CreateOptionsWindow()
     InitSV()
     local f = CreateFrame("Frame", "fr0z3nUI_AutoOpenOptions", UIParent, "BackdropTemplate")
     fr0z3nUI_AutoOpenOptions = f
-    f:SetSize(280,230)
+
+    -- Allow closing with Escape.
+    do
+        local special = _G and _G["UISpecialFrames"]
+        if type(special) == "table" then
+            local name = "fr0z3nUI_AutoOpenOptions"
+            local exists = false
+            for i = 1, #special do
+                if special[i] == name then exists = true break end
+            end
+            if not exists and table and table.insert then table.insert(special, name) end
+        end
+    end
+    local FRAME_W, FRAME_H = 340, 210
+    f:SetSize(FRAME_W, FRAME_H)
     f:SetPoint("CENTER")
     f:SetClampedToScreen(true)
     f:SetFrameStrata("DIALOG")
@@ -471,16 +810,85 @@ local function CreateOptionsWindow()
     f:SetBackdrop({bgFile = "Interface/Tooltips/UI-Tooltip-Background", tile = true, tileSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 }})
     f:SetBackdropColor(0,0,0,0.7)
 
+    local itemsPanel = CreateFrame("Frame", nil, f)
+    itemsPanel:SetAllPoints()
+    f.itemsPanel = itemsPanel
+
+    local togglesPanel = CreateFrame("Frame", nil, f)
+    togglesPanel:SetAllPoints()
+    togglesPanel:Hide()
+    f.togglesPanel = togglesPanel
+
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", 0, -8)
+    title:SetPoint("TOPLEFT", 12, -6)
+    title:SetJustifyH("LEFT")
     title:SetText("fr0z3nUI AutoOpen")
 
-    local info = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    info:SetPoint("TOP", title, "BOTTOM", 0, -4)
-    info:SetText("Enter ItemID Below")
+    local panelTemplatesSetNumTabs = _G and _G["PanelTemplates_SetNumTabs"]
+    local panelTemplatesSetTab = _G and _G["PanelTemplates_SetTab"]
 
-    local edit = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    edit:SetSize(155,38)
+    local function SelectTab(tabID)
+        f.activeTab = tabID
+        if f.itemsPanel then f.itemsPanel:SetShown(tabID == 1) end
+        if f.togglesPanel then f.togglesPanel:SetShown(tabID == 2) end
+        if type(panelTemplatesSetTab) == "function" then
+            panelTemplatesSetTab(f, tabID)
+        end
+    end
+    f.SelectTab = SelectTab
+
+    local function StyleTab(btn)
+        if not btn then return end
+        btn:SetHeight(22)
+
+        local n = btn.GetNormalTexture and btn:GetNormalTexture() or nil
+        if n and n.SetAlpha then n:SetAlpha(0.65) end
+        local h = btn.GetHighlightTexture and btn:GetHighlightTexture() or nil
+        if h and h.SetAlpha then h:SetAlpha(0.45) end
+        local p = btn.GetPushedTexture and btn:GetPushedTexture() or nil
+        if p and p.SetAlpha then p:SetAlpha(0.75) end
+        local d = btn.GetDisabledTexture and btn:GetDisabledTexture() or nil
+        if d and d.SetAlpha then d:SetAlpha(0.40) end
+    end
+
+    local tab1 = CreateFrame("Button", "$parentTab1", f, "PanelTabButtonTemplate")
+    tab1:SetID(1)
+    tab1:SetText("Items")
+    tab1:SetPoint("TOPLEFT", title, "TOPRIGHT", 10, 2)
+    tab1:SetScript("OnClick", function(self) SelectTab(self:GetID()) end)
+    StyleTab(tab1)
+    f.tab1 = tab1
+
+    local tab2 = CreateFrame("Button", "$parentTab2", f, "PanelTabButtonTemplate")
+    tab2:SetID(2)
+    tab2:SetText("Toggles")
+    tab2:SetPoint("LEFT", tab1, "RIGHT", -16, 0)
+    tab2:SetScript("OnClick", function(self) SelectTab(self:GetID()) end)
+    StyleTab(tab2)
+    f.tab2 = tab2
+
+    if type(panelTemplatesSetNumTabs) == "function" then
+        panelTemplatesSetNumTabs(f, 2)
+    end
+    if type(panelTemplatesSetTab) == "function" then
+        panelTemplatesSetTab(f, 1)
+    end
+
+    local function BumpFont(fs, delta)
+        if not (fs and fs.GetFont and fs.SetFont) then return end
+        local fontPath, fontSize, fontFlags = fs:GetFont()
+        if fontPath and fontSize then
+            fs:SetFont(fontPath, fontSize + (delta or 0), fontFlags)
+        end
+    end
+
+    local info = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    info:SetPoint("TOP", f, "TOP", 0, -54)
+    info:SetText("Enter ItemID Below")
+    BumpFont(info, 1)
+
+    local edit = CreateFrame("EditBox", nil, itemsPanel, "InputBoxTemplate")
+    edit:SetSize(175,38)
     edit:SetPoint("TOP", info, "BOTTOM", 0, -2)
     edit:SetAutoFocus(false)
     edit:SetMaxLetters(10)
@@ -494,46 +902,94 @@ local function CreateOptionsWindow()
     end
     f.edit = edit
 
-    local nameLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    nameLabel:SetPoint("TOP", edit, "BOTTOM", 0, -2)
-    nameLabel:SetWidth(f:GetWidth() - 20)
+    -- Make the input look like a clean field (hide the template frame) + add a placeholder.
+    local function HideEditBoxFrame(box)
+        if not box or not box.GetRegions then return end
+        for i = 1, select("#", box:GetRegions()) do
+            local region = select(i, box:GetRegions())
+            if region and region.Hide and region.GetObjectType and region:GetObjectType() == "Texture" then
+                region:Hide()
+            end
+        end
+    end
+    HideEditBoxFrame(edit)
+
+    local placeholder = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    placeholder:SetPoint("CENTER", edit, "CENTER", 0, 0)
+    placeholder:SetText("Input Here")
+    placeholder:SetTextColor(1, 1, 1, 0.35)
+    f.inputPlaceholder = placeholder
+
+    local function UpdatePlaceholder()
+        if not f or not f.inputPlaceholder or not f.edit then return end
+        local txt = f.edit:GetText() or ""
+        local hasText = txt ~= ""
+        local focused = f.edit.HasFocus and f.edit:HasFocus() or false
+        f.inputPlaceholder:SetShown((not hasText) and (not focused))
+    end
+    f.UpdateInputPlaceholder = UpdatePlaceholder
+
+    edit:SetScript("OnEditFocusGained", function()
+        if f and f.inputPlaceholder then f.inputPlaceholder:Hide() end
+    end)
+    edit:SetScript("OnEditFocusLost", function()
+        UpdatePlaceholder()
+    end)
+
+    -- Reserve a fixed space for name/reason so buttons never move.
+    local textArea = CreateFrame("Frame", nil, itemsPanel)
+    textArea:SetPoint("TOPLEFT", edit, "BOTTOMLEFT", 0, -2)
+    textArea:SetPoint("TOPRIGHT", edit, "BOTTOMRIGHT", 0, -2)
+    textArea:SetPoint("BOTTOM", itemsPanel, "BOTTOM", 0, 58)
+    if textArea.SetClipsChildren then textArea:SetClipsChildren(true) end
+
+    local nameLabel = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    nameLabel:SetPoint("TOP", textArea, "TOP", 0, 0)
+    nameLabel:SetPoint("LEFT", textArea, "LEFT", 0, 0)
+    nameLabel:SetPoint("RIGHT", textArea, "RIGHT", 0, 0)
     nameLabel:SetJustifyH("CENTER")
     nameLabel:SetWordWrap(true)
     nameLabel:SetText("")
+    BumpFont(nameLabel, 1)
     f.nameLabel = nameLabel
 
-    local reasonLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local reasonLabel = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     reasonLabel:SetPoint("TOP", nameLabel, "BOTTOM", 0, -2)
-    reasonLabel:SetWidth(f:GetWidth() - 20)
+    reasonLabel:SetPoint("LEFT", textArea, "LEFT", 0, 0)
+    reasonLabel:SetPoint("RIGHT", textArea, "RIGHT", 0, 0)
     reasonLabel:SetJustifyH("CENTER")
     reasonLabel:SetWordWrap(true)
     reasonLabel:SetText("")
+    BumpFont(reasonLabel, 1)
     f.reasonLabel = reasonLabel
 
     local BTN_W, BTN_H = 125, 22
     local PAD_X = 10
-    local ROW_TOP_Y = 38
+    local BTN_GAP = 14
+    local ROW_TOP_Y = 30
     local ROW_BOTTOM_Y = 10
-    local SLIDER_Y = 74
+    local TOGGLE_ROW_TOP_Y = 72
+    local TOGGLE_ROW_BOTTOM_Y = 46
+    local TOGGLE_ROW_CACHE_Y = 20
 
-    local cooldownLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    cooldownLabel:SetPoint("BOTTOM", f, "BOTTOM", 0, SLIDER_Y + 18)
+    local cooldownLabel = togglesPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    cooldownLabel:SetPoint("TOP", togglesPanel, "TOP", 0, -46)
     cooldownLabel:SetText(string.format("Open Cooldown: %.1fs", GetOpenCooldown()))
     f.cooldownLabel = cooldownLabel
 
-    local cdSlider = CreateFrame("Slider", nil, f, "UISliderTemplate")
-    cdSlider:SetPoint("BOTTOM", f, "BOTTOM", 0, SLIDER_Y)
-    cdSlider:SetSize(220, 18)
+    local cdSlider = CreateFrame("Slider", nil, togglesPanel, "UISliderTemplate")
+    cdSlider:SetPoint("TOP", cooldownLabel, "BOTTOM", 0, -6)
+    cdSlider:SetSize(FRAME_W - 60, 18)
     cdSlider:SetMinMaxValues(0, 10)
     cdSlider:SetValueStep(0.1)
     if cdSlider.SetObeyStepOnDrag then cdSlider:SetObeyStepOnDrag(true) end
     f.cdSlider = cdSlider
 
-    local cdLow = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local cdLow = togglesPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     cdLow:SetPoint("TOPLEFT", cdSlider, "BOTTOMLEFT", 0, -2)
     cdLow:SetText("0.0s")
 
-    local cdHigh = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local cdHigh = togglesPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     cdHigh:SetPoint("TOPRIGHT", cdSlider, "BOTTOMRIGHT", 0, -2)
     cdHigh:SetText("10.0s")
 
@@ -566,27 +1022,114 @@ local function CreateOptionsWindow()
         end
     end)
 
-    local btnChar = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local ADD_ROW_X = (BTN_W / 2) + (BTN_GAP / 2)
+
+    local btnChar = CreateFrame("Button", nil, itemsPanel, "UIPanelButtonTemplate")
     btnChar:SetSize(BTN_W, BTN_H)
-    btnChar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD_X, ROW_TOP_Y)
+    btnChar:SetPoint("BOTTOM", itemsPanel, "BOTTOM", -ADD_ROW_X, 28)
     btnChar:SetText("Character")
-    btnChar:SetScript("OnClick", function()
-        local id = f.validID or tonumber(edit:GetText() or "")
-        AddItemByID(id, "char")
-    end)
     btnChar:Disable()
     f.btnChar = btnChar
 
-    local btnAcc = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local btnAcc = CreateFrame("Button", nil, itemsPanel, "UIPanelButtonTemplate")
     btnAcc:SetSize(BTN_W, BTN_H)
-    btnAcc:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PAD_X, ROW_TOP_Y)
+    btnAcc:SetPoint("BOTTOM", itemsPanel, "BOTTOM", ADD_ROW_X, 28)
     btnAcc:SetText("Account")
-    btnAcc:SetScript("OnClick", function()
-        local id = f.validID or tonumber(edit:GetText() or "")
-        AddItemByID(id, "acc")
-    end)
     btnAcc:Disable()
     f.btnAcc = btnAcc
+
+    local DoValidate
+
+    local function IsOpenableID(id)
+        if not id then return false end
+        if ns and ns.items and ns.items[id] then return true end
+        if fr0z3nUI_AutoOpen_Acc and fr0z3nUI_AutoOpen_Acc[id] then return true end
+        if fr0z3nUI_AutoOpen_Char and fr0z3nUI_AutoOpen_Char[id] then return true end
+        return false
+    end
+
+    local function SetButtonState(btn, label, isDisabled)
+        if not btn then return end
+        if isDisabled then
+            btn:SetText("|cffffff00"..label.."|r") -- yellow = re-enable
+        else
+            btn:SetText("|cffff0000"..label.."|r") -- red = disable
+        end
+    end
+
+    local function UpdateScopeButtons(id)
+        InitSV()
+        if not id then
+            if f.btnChar then f.btnChar:Disable() end
+            if f.btnAcc then f.btnAcc:Disable() end
+            return
+        end
+
+        local openable = IsOpenableID(id)
+
+        if openable then
+            if f.reasonLabel then
+                f.reasonLabel:SetText("|cffaaaaaaRed = disable auto-open. Yellow = re-enable.|r")
+            end
+
+            if f.btnAcc then
+                f.btnAcc:Enable()
+                local isDisabledAcc = (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id]) and true or false
+                SetButtonState(f.btnAcc, "Account", isDisabledAcc)
+                f.btnAcc:SetScript("OnClick", function()
+                    InitSV()
+                    local t = fr0z3nUI_AutoOpen_Settings.disabled
+                    if t[id] then
+                        t[id] = nil
+                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Account")
+                    else
+                        t[id] = true
+                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Account")
+                    end
+                    UpdateScopeButtons(id)
+                end)
+            end
+
+            if f.btnChar then
+                f.btnChar:Enable()
+                local isDisabledChar = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id]) and true or false
+                SetButtonState(f.btnChar, "Character", isDisabledChar)
+                f.btnChar:SetScript("OnClick", function()
+                    InitSV()
+                    local t = fr0z3nUI_AutoOpen_CharSettings.disabled
+                    if t[id] then
+                        t[id] = nil
+                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Character")
+                    else
+                        t[id] = true
+                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Character")
+                    end
+                    UpdateScopeButtons(id)
+                end)
+            end
+        else
+            if f.reasonLabel then f.reasonLabel:SetText("") end
+
+            if f.btnAcc then
+                f.btnAcc:Enable()
+                f.btnAcc:SetText("Account")
+                f.btnAcc:SetScript("OnClick", function()
+                    local id2 = f.validID or tonumber(edit:GetText() or "")
+                    AddItemByID(id2, "acc")
+                    DoValidate()
+                end)
+            end
+            if f.btnChar then
+                f.btnChar:Enable()
+                f.btnChar:SetText("Character")
+                f.btnChar:SetScript("OnClick", function()
+                    local id2 = f.validID or tonumber(edit:GetText() or "")
+                    AddItemByID(id2, "char")
+                    DoValidate()
+                end)
+            end
+        end
+    end
 
     local function UpdateAutoOpenButton()
         InitSV()
@@ -605,9 +1148,36 @@ local function CreateOptionsWindow()
         end
     end
 
-    local btnAutoOpen = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local function UpdateCacheLockButton()
+        InitSV()
+        local enabled = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck ~= false)
+        if f.btnCacheLock then
+            f.btnCacheLock:SetText("Cache: "..(enabled and "ON" or "OFF"))
+        end
+    end
+
+    local function UpdateTalentButtons()
+        InitSV()
+        local mode = tostring((fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.talentMode) or "WORLD"):upper()
+        local uiMode = GetTalentAutoOpenMode()
+
+        if f.btnTalentsMode then
+            f.btnTalentsMode:SetText("Talents: "..mode)
+        end
+        if f.btnTalentsAuto then
+            if uiMode == "ACC" then
+                f.btnTalentsAuto:SetText("Talent UI: ON ACC")
+            elseif uiMode == "CHAR" then
+                f.btnTalentsAuto:SetText("Talent UI: ON")
+            else
+                f.btnTalentsAuto:SetText("Talent UI: OFF")
+            end
+        end
+    end
+
+    local btnAutoOpen = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
     btnAutoOpen:SetSize(BTN_W, BTN_H)
-    btnAutoOpen:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PAD_X, ROW_BOTTOM_Y)
+    btnAutoOpen:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_TOP_Y)
     btnAutoOpen:SetScript("OnClick", function()
         InitSV()
         local enabled = (fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false)
@@ -622,9 +1192,9 @@ local function CreateOptionsWindow()
     end)
     f.btnAutoOpen = btnAutoOpen
 
-    local btnGreatVault = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    local btnGreatVault = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
     btnGreatVault:SetSize(BTN_W, BTN_H)
-    btnGreatVault:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD_X, ROW_BOTTOM_Y)
+    btnGreatVault:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_TOP_Y)
     btnGreatVault:SetScript("OnClick", function()
         InitSV()
         local current = tostring(fr0z3nUI_AutoOpen_CharSettings.greatVaultMode or "OFF"):upper()
@@ -666,8 +1236,162 @@ local function CreateOptionsWindow()
     end)
     f.btnGreatVault = btnGreatVault
 
+    local btnCacheLock = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
+    btnCacheLock:SetSize(BTN_W, BTN_H)
+    btnCacheLock:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_CACHE_Y)
+    btnCacheLock:SetScript("OnClick", function()
+        InitSV()
+        local cur = (fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck ~= false)
+        fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck = not cur
+        print("|cff00ccff[FAO]|r Cache Lock: "..(fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+        UpdateCacheLockButton()
+    end)
+    btnCacheLock:SetScript("OnEnter", function()
+        if GameTooltip then
+            GameTooltip:SetOwner(f, "ANCHOR_NONE")
+            GameTooltip:ClearAllPoints()
+            GameTooltip:SetPoint("TOP", btnCacheLock, "BOTTOM", 0, -6)
+            GameTooltip:SetText("Cache Lock")
+            GameTooltip:AddLine("ON: only allow manual adds if the tooltip shows 'Right Click to Open'.", 1, 1, 1, true)
+            GameTooltip:AddLine("OFF: bypass this check (advanced / use with care).", 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    btnCacheLock:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    f.btnCacheLock = btnCacheLock
+
+    local btnReset = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
+    btnReset:SetSize(BTN_W, BTN_H)
+    btnReset:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_CACHE_Y)
+    btnReset:SetText("Reset SV")
+    btnReset:SetScript("OnClick", function()
+        if not (IsShiftKeyDown and IsShiftKeyDown()) then
+            print("|cff00ccff[FAO]|r Hold |cffffff00SHIFT|r and click to reset all saved variables.")
+            return
+        end
+
+        fr0z3nUI_AutoOpen_Acc = {}
+        fr0z3nUI_AutoOpen_Char = {}
+        fr0z3nUI_AutoOpen_Settings = {}
+        fr0z3nUI_AutoOpen_CharSettings = {}
+        fr0z3nUI_AutoOpen_Timers = {}
+        didPruneCustomWhitelists = false
+
+        InitSV()
+
+        if f.edit then f.edit:SetText("") end
+        if f.nameLabel then f.nameLabel:SetText("") end
+        if f.reasonLabel then f.reasonLabel:SetText("") end
+        f.validID = nil
+        if f.btnChar then f.btnChar:Disable() end
+        if f.btnAcc then f.btnAcc:Disable() end
+
+        UpdateAutoOpenButton()
+        UpdateGreatVaultButton()
+        UpdateCacheLockButton()
+        UpdateTalentButtons()
+        UpdateCooldownControls()
+        if f.UpdateInputPlaceholder then f.UpdateInputPlaceholder() end
+
+        print("|cff00ccff[FAO]|r SavedVariables reset. (Optional: /reload)")
+    end)
+    btnReset:SetScript("OnEnter", function()
+        if GameTooltip then
+            GameTooltip:SetOwner(f, "ANCHOR_NONE")
+            GameTooltip:ClearAllPoints()
+            GameTooltip:SetPoint("TOP", btnReset, "BOTTOM", 0, -6)
+            GameTooltip:SetText("Reset SavedVariables")
+            GameTooltip:AddLine("Resets: whitelists, per-char settings, account settings, timers.", 1, 1, 1, true)
+            GameTooltip:AddLine("Hold SHIFT and click to confirm.", 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    btnReset:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+
+    local btnTalentsMode = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
+    btnTalentsMode:SetSize(BTN_W, BTN_H)
+    btnTalentsMode:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_BOTTOM_Y)
+    btnTalentsMode:SetScript("OnClick", function()
+        InitSV()
+        local current = tostring(fr0z3nUI_AutoOpen_CharSettings.talentMode or "WORLD"):upper()
+        local nextMode
+        if current == "OFF" then nextMode = "LOGIN"
+        elseif current == "LOGIN" then nextMode = "RL"
+        elseif current == "RL" then nextMode = "WORLD"
+        else nextMode = "OFF" end
+
+        fr0z3nUI_AutoOpen_CharSettings.talentMode = nextMode
+        if nextMode == "OFF" then
+            print("|cff00ccff[FAO]|r Talent reminder Off")
+        elseif nextMode == "LOGIN" then
+            print("|cff00ccff[FAO]|r Talent reminder On Login")
+        elseif nextMode == "RL" then
+            print("|cff00ccff[FAO]|r Talent reminder On Reload")
+        else
+            print("|cff00ccff[FAO]|r Talent reminder On World Enter (reload/portal/instance)")
+        end
+        UpdateTalentButtons()
+    end)
+    btnTalentsMode:SetScript("OnEnter", function()
+        if GameTooltip then
+            GameTooltip:SetOwner(f, "ANCHOR_NONE")
+            GameTooltip:ClearAllPoints()
+            GameTooltip:SetPoint("LEFT", btnTalentsMode, "RIGHT", 8, 0)
+            GameTooltip:SetText("Talent Reminder")
+            GameTooltip:AddLine("OFF = disabled", 1, 1, 1, true)
+            GameTooltip:AddLine("LOGIN = initial login only", 1, 1, 1, true)
+            GameTooltip:AddLine("RL = /reload only", 1, 1, 1, true)
+            GameTooltip:AddLine("WORLD = reload + portals/instances", 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    btnTalentsMode:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    f.btnTalentsMode = btnTalentsMode
+
+    local btnTalentsAuto = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
+    btnTalentsAuto:SetSize(BTN_W, BTN_H)
+    btnTalentsAuto:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_BOTTOM_Y)
+    btnTalentsAuto:SetScript("OnClick", function()
+        InitSV()
+        local mode = GetTalentAutoOpenMode()
+        if mode == "OFF" then
+            fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen = true
+            fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = nil
+            print("|cff00ccff[FAO]|r Talent UI: ON (Character)")
+        elseif mode == "CHAR" then
+            fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = true
+            print("|cff00ccff[FAO]|r Talent UI: ON (Account)")
+        else
+            -- Leaving account override: clear it and revert back to character OFF.
+            fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = nil
+            fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen = false
+            print("|cff00ccff[FAO]|r Talent UI: OFF")
+        end
+        UpdateTalentButtons()
+    end)
+    btnTalentsAuto:SetScript("OnEnter", function()
+        if GameTooltip then
+            GameTooltip:SetOwner(f, "ANCHOR_NONE")
+            GameTooltip:ClearAllPoints()
+            GameTooltip:SetPoint("LEFT", btnTalentsAuto, "RIGHT", 8, 0)
+            GameTooltip:SetText("Auto-Open Talents")
+            GameTooltip:AddLine("When unspent points are detected (> 0), attempts to open the talents UI (out of combat).", 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    btnTalentsAuto:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    f.btnTalentsAuto = btnTalentsAuto
+
     -- debounced validation function
-    local function DoValidate()
+    DoValidate = function()
         local text = (edit:GetText() or "")
         if text == "" then
             if f.nameLabel then f.nameLabel:SetText("") end
@@ -693,8 +1417,7 @@ local function CreateOptionsWindow()
             if f.nameLabel then f.nameLabel:SetText("|cffffff00"..displayName.."|r") end
             if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Requires level "..req.." (will not auto-open yet)|r") end
             f.validID = id
-            if f.btnChar then f.btnChar:Enable() end
-            if f.btnAcc then f.btnAcc:Enable() end
+            UpdateScopeButtons(id)
             return
         end
 
@@ -712,10 +1435,37 @@ local function CreateOptionsWindow()
 
         if iname then
             if f.nameLabel then f.nameLabel:SetText("|cffffff00"..iname.."|r") end
-            if f.reasonLabel then f.reasonLabel:SetText("") end
+
+            local alreadyWhitelisted = IsOpenableID(id)
+            local ok, why = IsProbablyOpenableCacheID(id)
+
+            if ok == nil and not alreadyWhitelisted then
+                if f.reasonLabel then f.reasonLabel:SetText("|cffaaaaaaLoading item data...|r") end
+                f.validID = nil
+                if f.btnChar then f.btnChar:Disable() end
+                if f.btnAcc then f.btnAcc:Disable() end
+                return
+            end
+
+            if ok == false and not alreadyWhitelisted then
+                local reason = "Not an openable cache"
+                if why == "equippable" then reason = "This looks equippable (not a cache)" end
+                if why == "no_open_line" then reason = "No 'Right Click to Open' tooltip line" end
+                if f.reasonLabel then f.reasonLabel:SetText("|cffff9900"..reason.."|r") end
+                f.validID = nil
+                if f.btnChar then f.btnChar:Disable() end
+                if f.btnAcc then f.btnAcc:Disable() end
+                return
+            end
+
+            if ok == false and alreadyWhitelisted then
+                if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Warning: this does not look openable (still allowing disable/re-enable).|r") end
+            else
+                if f.reasonLabel then f.reasonLabel:SetText("") end
+            end
+
             f.validID = id
-            if f.btnChar then f.btnChar:Enable() end
-            if f.btnAcc then f.btnAcc:Enable() end
+            UpdateScopeButtons(id)
         else
             if f.nameLabel then f.nameLabel:SetText("|cffff0000Item not found (may need cache)|r") end
             if f.reasonLabel then f.reasonLabel:SetText("") end
@@ -740,6 +1490,10 @@ local function CreateOptionsWindow()
 
         -- Clear previous validation when text changes.
         if fr0z3nUI_AutoOpenOptions then
+            if fr0z3nUI_AutoOpenOptions.UpdateInputPlaceholder then
+                fr0z3nUI_AutoOpenOptions.UpdateInputPlaceholder()
+            end
+
             fr0z3nUI_AutoOpenOptions.validID = nil
             if fr0z3nUI_AutoOpenOptions.nameLabel then fr0z3nUI_AutoOpenOptions.nameLabel:SetText("") end
             if fr0z3nUI_AutoOpenOptions.reasonLabel then fr0z3nUI_AutoOpenOptions.reasonLabel:SetText("") end
@@ -761,12 +1515,22 @@ local function CreateOptionsWindow()
         InitSV()
         UpdateAutoOpenButton()
         UpdateGreatVaultButton()
+        UpdateCacheLockButton()
+        UpdateTalentButtons()
         UpdateCooldownControls()
+
+        if f.UpdateInputPlaceholder then f.UpdateInputPlaceholder() end
+
+        if f.activeTab == nil then f.activeTab = 1 end
+        SelectTab(f.activeTab)
     end)
 
     UpdateAutoOpenButton()
     UpdateGreatVaultButton()
+    UpdateCacheLockButton()
+    UpdateTalentButtons()
     UpdateCooldownControls()
+    SelectTab(1)
     f:Hide()
 end
 
@@ -779,6 +1543,17 @@ SlashCmdList["FAO"] = function(msg)
     local cmd, arg = text:match("^(%S+)%s*(%S*)")
     cmd = cmd and cmd:lower() or nil
     arg = arg and arg:lower() or ""
+
+    if text == "?" or cmd == "?" or cmd == "help" then
+        print("|cff00ccff[FAO]|r Commands:")
+        print("|cff00ccff[FAO]|r /fao              - open/toggle window")
+        print("|cff00ccff[FAO]|r /fao <itemid>      - open window + set item id")
+        print("|cff00ccff[FAO]|r /fao ao on|off     - auto-open containers")
+        print("|cff00ccff[FAO]|r /fao cd <seconds>  - open cooldown (0-10)")
+        print("|cff00ccff[FAO]|r /fao gv            - cycle Great Vault OFF/ON/RL")
+        print("|cff00ccff[FAO]|r /fao talents       - talent reminder help")
+        return
+    end
 
     if cmd == "cd" or cmd == "cooldown" then
         if arg == "" then
@@ -851,6 +1626,75 @@ SlashCmdList["FAO"] = function(msg)
             print("|cff00ccff[FAO]|r Usage: /fao gv on        - show at login")
             print("|cff00ccff[FAO]|r Usage: /fao gv rl        - show on /reload")
         end
+        return
+    end
+
+    if cmd == "talent" or cmd == "talents" then
+        local sub, subarg = text:match("^%S+%s+(%S+)%s*(%S*)")
+        sub = sub and sub:lower() or ""
+        subarg = subarg and subarg:lower() or ""
+
+        local function PrintTalentStatus()
+            local mode = tostring(fr0z3nUI_AutoOpen_CharSettings.talentMode or "WORLD"):upper()
+            local uiMode = GetTalentAutoOpenMode()
+            local ui = (uiMode == "ACC") and "ON ACC" or (uiMode == "CHAR" and "ON" or "OFF")
+            print("|cff00ccff[FAO]|r Talents: "..mode.." (UI: "..ui..")")
+        end
+
+        if arg == "" and sub == "" then
+            PrintTalentStatus()
+            print("|cff00ccff[FAO]|r Usage: /fao talents toggle")
+            print("|cff00ccff[FAO]|r Usage: /fao talents off|login|rl|world")
+            print("|cff00ccff[FAO]|r Usage: /fao talents ui off|on|acc")
+            print("|cff00ccff[FAO]|r Usage: /fao talents check")
+            return
+        end
+
+        if arg == "toggle" then
+            local current = tostring(fr0z3nUI_AutoOpen_CharSettings.talentMode or "WORLD"):upper()
+            if current == "OFF" then fr0z3nUI_AutoOpen_CharSettings.talentMode = "LOGIN"
+            elseif current == "LOGIN" then fr0z3nUI_AutoOpen_CharSettings.talentMode = "RL"
+            elseif current == "RL" then fr0z3nUI_AutoOpen_CharSettings.talentMode = "WORLD"
+            else fr0z3nUI_AutoOpen_CharSettings.talentMode = "OFF" end
+            PrintTalentStatus()
+            return
+        end
+
+        if arg == "check" then
+            MaybeHandleTalents(true, false)
+            return
+        end
+
+        if arg == "ui" and subarg ~= "" then
+            local v = tostring(subarg):lower()
+            if v == "0" or v == "false" then v = "off" end
+            if v == "1" or v == "true" then v = "on" end
+            if v == "reload" then v = "rl" end
+
+            if v == "rl" or v == "world" then v = "on" end
+            if v == "acc" or v == "account" or v == "onacc" then
+                fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = true
+            elseif v == "off" or v == "on" then
+                -- Any character choosing OFF/ON clears account override.
+                fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = nil
+                fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen = (v == "on")
+            else
+                print("|cff00ccff[FAO]|r Usage: /fao talents ui off|on|acc")
+                return
+            end
+            PrintTalentStatus()
+            return
+        end
+
+        if arg == "off" or arg == "login" or arg == "rl" or arg == "reload" or arg == "world" then
+            if arg == "reload" then arg = "rl" end
+            fr0z3nUI_AutoOpen_CharSettings.talentMode = tostring(arg):upper()
+            PrintTalentStatus()
+            return
+        end
+
+        print("|cff00ccff[FAO]|r Usage: /fao talents off|login|rl|world")
+        print("|cff00ccff[FAO]|r Usage: /fao talents ui off|on|acc")
         return
     end
 
