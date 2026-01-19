@@ -1,6 +1,40 @@
 local addonName, ns = ...
 local lastOpenTime, atBank, atMail = 0, false, false
 local didPruneCustomWhitelists = false
+local lastTalentsDebugAt, lastTalentsDebugLine = 0, nil
+
+local function GetAutoLootDefaultSafe()
+    if GetCVarBool then
+        return GetCVarBool("autoLootDefault")
+    end
+    if C_CVar and C_CVar.GetCVarBool then
+        return C_CVar.GetCVarBool("autoLootDefault")
+    end
+    if GetCVar then
+        local v = GetCVar("autoLootDefault")
+        if v == nil then return nil end
+        return tostring(v) == "1"
+    end
+    return nil
+end
+
+local function SetAutoLootDefaultSafe(enabled)
+    local v = enabled and "1" or "0"
+    if C_CVar and C_CVar.SetCVar then
+        C_CVar.SetCVar("autoLootDefault", v)
+        return true
+    end
+    if SetCVar then
+        SetCVar("autoLootDefault", v)
+        return true
+    end
+    return false
+end
+
+local function ApplyAutoLootSettingOnWorld()
+    if not (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) then return end
+    SetAutoLootDefaultSafe(true)
+end
 
 local function NormalizeCooldown(value)
     local cd = tonumber(value)
@@ -210,6 +244,17 @@ local function InitSV()
     end
     fr0z3nUI_AutoOpen_Settings.talentAutoOpen = nil
 
+    -- Debug toggles (per-character)
+    if type(fr0z3nUI_AutoOpen_CharSettings.debugTalents) ~= "boolean" then
+        fr0z3nUI_AutoOpen_CharSettings.debugTalents = false
+    end
+
+    -- Auto Loot (per-character): when ON, force the account CVar to enabled on login.
+    -- Default: ON
+    if type(fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) ~= "boolean" then
+        fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin = true
+    end
+
     -- Cache Lock (per-character): when OFF, bypass openable-cache validation for manual adds.
     if fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck == nil then
         fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck = true
@@ -318,6 +363,22 @@ local function GetUnspentTalentPointsSafe()
     end
 
     local total, classPoints, heroPoints = Query()
+
+    -- Hero talent points (71-80) can briefly report as numeric 0 before the talent systems are fully initialized.
+    -- If we treat that as "ready", we never load the Blizzard talent UI addons and never see the points.
+    if total ~= nil and total <= 0 and not didTryLoadTalentAddonsForPoints then
+        local level = (UnitLevel and UnitLevel("player")) or nil
+        if type(level) == "number" and level >= 71 then
+            didTryLoadTalentAddonsForPoints = true
+            if C_AddOns and C_AddOns.LoadAddOn then
+                C_AddOns.LoadAddOn("Blizzard_PlayerSpells")
+                C_AddOns.LoadAddOn("Blizzard_ClassTalentUI")
+                C_AddOns.LoadAddOn("Blizzard_TalentUI")
+            end
+            total, classPoints, heroPoints = Query()
+        end
+    end
+
     if total == nil and not didTryLoadTalentAddonsForPoints then
         didTryLoadTalentAddonsForPoints = true
         if C_AddOns and C_AddOns.LoadAddOn then
@@ -335,6 +396,16 @@ end
 local function HasUnspentTalentPointsSafe()
     if C_ClassTalents and C_ClassTalents.HasUnspentTalentPoints then
         local ok, v = pcall(C_ClassTalents.HasUnspentTalentPoints)
+        if ok and type(v) == "boolean" then
+            return v
+        end
+    end
+    return nil
+end
+
+local function HasUnspentHeroTalentPointsSafe()
+    if C_ClassTalents and C_ClassTalents.HasUnspentHeroTalentPoints then
+        local ok, v = pcall(C_ClassTalents.HasUnspentHeroTalentPoints)
         if ok and type(v) == "boolean" then
             return v
         end
@@ -404,20 +475,61 @@ local function MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt, seq)
     isInitialLogin = isInitialLogin and true or false
     isReloadingUi = isReloadingUi and true or false
 
+    local debugTalents = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.debugTalents) and true or false
+    local function DebugTalentLine(line, force)
+        if not debugTalents then return end
+
+        local msg = tostring(line or "")
+        local now = (GetTime and GetTime()) or 0
+
+        -- Throttle + de-dupe: avoid spam during retries.
+        if not force then
+            if msg == lastTalentsDebugLine and now > 0 and (now - lastTalentsDebugAt) < 5 then
+                return
+            end
+            if now > 0 and (now - lastTalentsDebugAt) < 1 then
+                return
+            end
+        end
+
+        lastTalentsDebugAt = now
+        lastTalentsDebugLine = msg
+        print("|cff00ccff[FAO]|r |cffff8800[TALENTS DBG]|r " .. msg)
+    end
+
     if seq ~= nil and seq ~= talentCheckSeq then return end
 
     local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.talentMode) or "WORLD"
-    if not ShouldTalentTrigger(mode, isInitialLogin, isReloadingUi) then return end
+    local shouldTrigger = ShouldTalentTrigger(mode, isInitialLogin, isReloadingUi)
+    if attempt == 0 then
+        local lvl = (UnitLevel and UnitLevel("player")) or "?"
+        DebugTalentLine(string.format("start lvl=%s mode=%s trigger=%s initial=%s reload=%s", tostring(lvl), tostring(mode):upper(), tostring(shouldTrigger), tostring(isInitialLogin), tostring(isReloadingUi)), true)
+    end
+    if not shouldTrigger then return end
 
     local now = (GetTime and GetTime()) or 0
     if now > 0 and (now - lastTalentNotifyAt) < 10 then return end
 
     local points, classPoints, heroPoints = GetUnspentTalentPointsSafe()
     if points == nil then
+        local level = (UnitLevel and UnitLevel("player")) or nil
         local hasAny = HasUnspentTalentPointsSafe()
-        if hasAny == false then
+        local hasHeroAny = HasUnspentHeroTalentPointsSafe()
+
+        if attempt == 0 then
+            DebugTalentLine(string.format("query points=nil class=nil hero=nil hasAny=%s hasHero=%s didLoad=%s", tostring(hasAny), tostring(hasHeroAny), tostring(didTryLoadTalentAddonsForPoints)), true)
+        end
+
+        if hasHeroAny == false and hasAny == false then
+            -- Hero points can exist while the general boolean is still false (or before APIs warm up).
+            -- At hero levels, don't give up immediately; retry for a short window.
+            if type(level) == "number" and level >= 71 and attempt < 20 then
+                C_Timer.After(1, function()
+                    MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt + 1, seq)
+                end)
+            end
             return
-        elseif hasAny == true then
+        elseif hasHeroAny == true or hasAny == true then
             -- We know there are unspent points, but the numeric APIs aren't ready.
             if now > 0 and (now - lastTalentNotifyAt) < 10 then return end
             lastTalentNotifyAt = now
@@ -450,6 +562,27 @@ local function MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt, seq)
         end
         return
     end
+
+    -- Some clients can briefly report 0 while the boolean API already knows points exist (common right after level-ups).
+    if points ~= nil and points <= 0 then
+        -- Special case: hero talent APIs can lag behind even when the boolean API doesn't acknowledge it.
+        -- On WORLD checks, quietly retry for a short window at hero levels.
+        local level = (UnitLevel and UnitLevel("player")) or nil
+        if type(level) == "number" and level >= 71 and attempt < 20 then
+            C_Timer.After(1, function()
+                MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt + 1, seq)
+            end)
+            return
+        end
+        local hasAny = HasUnspentTalentPointsSafe()
+        if hasAny == true and attempt < 10 then
+            C_Timer.After(1, function()
+                MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt + 1, seq)
+            end)
+        end
+        return
+    end
+
     if not (points and points > 0) then return end
 
     if lastTalentNotifiedPoints == points and now > 0 and (now - lastTalentNotifyAt) < 60 then return end
@@ -462,6 +595,8 @@ local function MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt, seq)
     end
 
     local _, shouldOpenUI = GetTalentAutoOpenMode()
+
+    DebugTalentLine(string.format("result attempt=%d total=%s class=%s hero=%s openUI=%s", tonumber(attempt) or 0, tostring(points), tostring(classPoints or 0), tostring(heroPoints or 0), tostring(shouldOpenUI)), true)
 
     if shouldOpenUI then
         local ok = ShowTalentsUI()
@@ -620,12 +755,15 @@ frame:RegisterEvent('BANKFRAME_OPENED'); frame:RegisterEvent('BANKFRAME_CLOSED')
 
 frame:SetScript('OnEvent', function(self, event, ...)
     if event == "PLAYER_LOGIN" then 
-        InitSV(); C_Timer.After(2, CheckTimersOnLogin)
+        InitSV()
+        ApplyAutoLootSettingOnWorld()
+        C_Timer.After(2, CheckTimersOnLogin)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         isInitialLogin = isInitialLogin and true or false
         isReloadingUi = isReloadingUi and true or false
         InitSV()
+        ApplyAutoLootSettingOnWorld()
         AutoEnableGreatVaultAtMaxLevel()
         local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
         mode = tostring(mode):upper()
@@ -968,6 +1106,7 @@ local function CreateOptionsWindow()
     local BTN_GAP = 14
     local ROW_TOP_Y = 30
     local ROW_BOTTOM_Y = 10
+    local TOGGLE_ROW_AUTOLOOT_Y = 98
     local TOGGLE_ROW_TOP_Y = 72
     local TOGGLE_ROW_BOTTOM_Y = 46
     local TOGGLE_ROW_CACHE_Y = 20
@@ -1139,6 +1278,14 @@ local function CreateOptionsWindow()
         end
     end
 
+    local function UpdateAutoLootButton()
+        InitSV()
+        local enabled = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) and true or false
+        if f.btnAutoLoot then
+            f.btnAutoLoot:SetText("Auto Loot: "..(enabled and "ON" or "OFF"))
+        end
+    end
+
     local function UpdateGreatVaultButton()
         InitSV()
         local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
@@ -1174,6 +1321,42 @@ local function CreateOptionsWindow()
             end
         end
     end
+
+    local btnAutoLoot = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
+    btnAutoLoot:SetSize(BTN_W, BTN_H)
+    btnAutoLoot:SetPoint("BOTTOM", f, "BOTTOM", 0, TOGGLE_ROW_AUTOLOOT_Y)
+    btnAutoLoot:SetScript("OnClick", function()
+        InitSV()
+        local cur = (fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) and true or false
+        fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin = not cur
+        if fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin then
+            local ok = SetAutoLootDefaultSafe(true)
+            if ok then
+                print("|cff00ccff[FAO]|r Auto Loot on login: |cff00ff00ON|r")
+            else
+                print("|cff00ccff[FAO]|r Auto Loot on login: |cff00ff00ON|r (but failed to set CVar)")
+            end
+        else
+            print("|cff00ccff[FAO]|r Auto Loot on login: |cffff0000OFF|r")
+        end
+        UpdateAutoLootButton()
+    end)
+    btnAutoLoot:SetScript("OnEnter", function()
+        if GameTooltip then
+            GameTooltip:SetOwner(f, "ANCHOR_NONE")
+            GameTooltip:ClearAllPoints()
+            GameTooltip:SetPoint("BOTTOM", btnAutoLoot, "TOP", 0, 10)
+            GameTooltip:SetText("Auto Loot")
+            GameTooltip:AddLine("ON: forces Auto Loot to be enabled on world entry.", 1, 1, 1, true)
+            GameTooltip:AddLine("(login, /reload, portals, instances)", 1, 1, 1, true)
+            GameTooltip:AddLine("OFF: does not change your setting.", 1, 1, 1, true)
+            GameTooltip:Show()
+        end
+    end)
+    btnAutoLoot:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    f.btnAutoLoot = btnAutoLoot
 
     local btnAutoOpen = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
     btnAutoOpen:SetSize(BTN_W, BTN_H)
@@ -1289,6 +1472,7 @@ local function CreateOptionsWindow()
         if f.btnAcc then f.btnAcc:Disable() end
 
         UpdateAutoOpenButton()
+        UpdateAutoLootButton()
         UpdateGreatVaultButton()
         UpdateCacheLockButton()
         UpdateTalentButtons()
@@ -1514,6 +1698,7 @@ local function CreateOptionsWindow()
     f:SetScript("OnShow", function()
         InitSV()
         UpdateAutoOpenButton()
+        UpdateAutoLootButton()
         UpdateGreatVaultButton()
         UpdateCacheLockButton()
         UpdateTalentButtons()
@@ -1526,6 +1711,7 @@ local function CreateOptionsWindow()
     end)
 
     UpdateAutoOpenButton()
+    UpdateAutoLootButton()
     UpdateGreatVaultButton()
     UpdateCacheLockButton()
     UpdateTalentButtons()
@@ -1549,9 +1735,74 @@ SlashCmdList["FAO"] = function(msg)
         print("|cff00ccff[FAO]|r /fao              - open/toggle window")
         print("|cff00ccff[FAO]|r /fao <itemid>      - open window + set item id")
         print("|cff00ccff[FAO]|r /fao ao on|off     - auto-open containers")
+        print("|cff00ccff[FAO]|r /fao autoloot       - toggle forcing Auto Loot ON at login")
         print("|cff00ccff[FAO]|r /fao cd <seconds>  - open cooldown (0-10)")
         print("|cff00ccff[FAO]|r /fao gv            - cycle Great Vault OFF/ON/RL")
         print("|cff00ccff[FAO]|r /fao talents       - talent reminder help")
+        print("|cff00ccff[FAO]|r /fao debug talents - toggle talent debug output")
+        return
+    end
+
+    if cmd == "autoloot" or cmd == "loot" or cmd == "al" then
+        local state = arg
+        local enforce = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) and true or false
+
+        if state == "" or state == "toggle" then
+            enforce = not enforce
+        elseif state == "on" or state == "1" or state == "true" then
+            enforce = true
+        elseif state == "off" or state == "0" or state == "false" then
+            enforce = false
+        elseif state == "status" then
+            -- no-op
+        else
+            print("|cff00ccff[FAO]|r Usage: /fao autoloot [on|off|toggle|status]")
+            return
+        end
+
+        fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin = enforce
+
+        if enforce then
+            local ok = SetAutoLootDefaultSafe(true)
+            if not ok then
+                print("|cff00ccff[FAO]|r Auto Loot: |cffff0000failed to set CVar|r")
+            end
+        end
+
+        local cur = GetAutoLootDefaultSafe()
+        local curText = (cur == nil) and "unknown" or (cur and "ON" or "OFF")
+        print("|cff00ccff[FAO]|r Auto Loot on login: " .. (enforce and "|cff00ff00ON|r" or "|cffff0000OFF|r") .. " (current: |cffffff00" .. curText .. "|r)")
+        return
+    end
+
+    if cmd == "debug" or cmd == "dbg" then
+        local target, state = text:match("^%S+%s+(%S+)%s*(%S*)")
+        target = target and target:lower() or ""
+        state = state and state:lower() or ""
+
+        if target == "talents" or target == "talent" then
+            local cur = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.debugTalents) and true or false
+            local nextVal = cur
+
+            if state == "" or state == "toggle" then
+                nextVal = not cur
+            elseif state == "on" or state == "1" or state == "true" then
+                nextVal = true
+            elseif state == "off" or state == "0" or state == "false" then
+                nextVal = false
+            elseif state == "status" then
+                nextVal = cur
+            else
+                print("|cff00ccff[FAO]|r Usage: /fao debug talents [on|off|toggle|status]")
+                return
+            end
+
+            fr0z3nUI_AutoOpen_CharSettings.debugTalents = nextVal
+            print("|cff00ccff[FAO]|r Talent debug: " .. (nextVal and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+            return
+        end
+
+        print("|cff00ccff[FAO]|r Usage: /fao debug talents [on|off|toggle|status]")
         return
     end
 
