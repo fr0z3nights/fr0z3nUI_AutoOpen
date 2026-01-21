@@ -36,6 +36,49 @@ local function ApplyAutoLootSettingOnWorld()
     SetAutoLootDefaultSafe(true)
 end
 
+local function GetFriendlyNPCNameplatesSafe()
+    if GetCVarBool then
+        return GetCVarBool("nameplateShowFriendlyNPCs")
+    end
+    if C_CVar and C_CVar.GetCVarBool then
+        return C_CVar.GetCVarBool("nameplateShowFriendlyNPCs")
+    end
+    if GetCVar then
+        local v = GetCVar("nameplateShowFriendlyNPCs")
+        if v == nil then return nil end
+        return tostring(v) == "1"
+    end
+    return nil
+end
+
+local function SetFriendlyNPCNameplatesSafe(enabled)
+    local v = enabled and "1" or "0"
+    if C_CVar and C_CVar.SetCVar then
+        C_CVar.SetCVar("nameplateShowFriendlyNPCs", v)
+        return true
+    end
+    if SetCVar then
+        SetCVar("nameplateShowFriendlyNPCs", v)
+        return true
+    end
+    return false
+end
+
+local function GetNPCNameplatesSettingEffective()
+    if fr0z3nUI_AutoOpen_Settings and type(fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount) == "boolean" then
+        return fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
+    end
+    if fr0z3nUI_AutoOpen_CharSettings and type(fr0z3nUI_AutoOpen_CharSettings.npcNameplates) == "boolean" then
+        return fr0z3nUI_AutoOpen_CharSettings.npcNameplates
+    end
+    return true
+end
+
+local function ApplyNPCNameplatesSettingOnWorld()
+    local enabled = GetNPCNameplatesSettingEffective()
+    SetFriendlyNPCNameplatesSafe(enabled)
+end
+
 local function NormalizeCooldown(value)
     local cd = tonumber(value)
     if not cd then return 2 end
@@ -253,6 +296,18 @@ local function InitSV()
     -- Default: ON
     if type(fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) ~= "boolean" then
         fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin = true
+    end
+
+    -- Friendly NPC Nameplates (3-state)
+    -- ON      = on (per-character)
+    -- ON ACC  = account override on (overrides character)
+    -- OFF ACC = account override off (overrides character)
+    -- Defaults: character ON, account override unset
+    if type(fr0z3nUI_AutoOpen_CharSettings.npcNameplates) ~= "boolean" then
+        fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
+    end
+    if fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount ~= nil and type(fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount) ~= "boolean" then
+        fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = nil
     end
 
     -- Cache Lock (per-character): when OFF, bypass openable-cache validation for manual adds.
@@ -757,6 +812,7 @@ frame:SetScript('OnEvent', function(self, event, ...)
     if event == "PLAYER_LOGIN" then 
         InitSV()
         ApplyAutoLootSettingOnWorld()
+        ApplyNPCNameplatesSettingOnWorld()
         C_Timer.After(2, CheckTimersOnLogin)
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
@@ -764,6 +820,7 @@ frame:SetScript('OnEvent', function(self, event, ...)
         isReloadingUi = isReloadingUi and true or false
         InitSV()
         ApplyAutoLootSettingOnWorld()
+        ApplyNPCNameplatesSettingOnWorld()
         AutoEnableGreatVaultAtMaxLevel()
         local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
         mode = tostring(mode):upper()
@@ -957,10 +1014,10 @@ local function CreateOptionsWindow()
     togglesPanel:Hide()
     f.togglesPanel = togglesPanel
 
-    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 12, -6)
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", 12, -10)
     title:SetJustifyH("LEFT")
-    title:SetText("fr0z3nUI AutoOpen")
+    title:SetText("|cff00ccff[FAO]|r AutoOpen")
 
     local panelTemplatesSetNumTabs = _G and _G["PanelTemplates_SetNumTabs"]
     local panelTemplatesSetTab = _G and _G["PanelTemplates_SetTab"]
@@ -992,7 +1049,7 @@ local function CreateOptionsWindow()
     local tab1 = CreateFrame("Button", "$parentTab1", f, "PanelTabButtonTemplate")
     tab1:SetID(1)
     tab1:SetText("Items")
-    tab1:SetPoint("TOPLEFT", title, "TOPRIGHT", 10, 2)
+    tab1:SetPoint("LEFT", title, "RIGHT", 10, 0)
     tab1:SetScript("OnClick", function(self) SelectTab(self:GetID()) end)
     StyleTab(tab1)
     f.tab1 = tab1
@@ -1286,6 +1343,21 @@ local function CreateOptionsWindow()
         end
     end
 
+    local function UpdateNPCNameButton()
+        InitSV()
+        if not f.btnNPCName then return end
+
+        local acc = fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
+        if acc == true then
+            f.btnNPCName:SetText("NPC Name: ON ACC")
+        elseif acc == false then
+            f.btnNPCName:SetText("NPC Name: OFF ACC")
+        else
+            local enabled = GetNPCNameplatesSettingEffective()
+            f.btnNPCName:SetText("NPC Name: "..(enabled and "ON" or "OFF"))
+        end
+    end
+
     local function UpdateGreatVaultButton()
         InitSV()
         local mode = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode) or "OFF"
@@ -1324,7 +1396,7 @@ local function CreateOptionsWindow()
 
     local btnAutoLoot = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
     btnAutoLoot:SetSize(BTN_W, BTN_H)
-    btnAutoLoot:SetPoint("BOTTOM", f, "BOTTOM", 0, TOGGLE_ROW_AUTOLOOT_Y)
+    btnAutoLoot:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_AUTOLOOT_Y)
     btnAutoLoot:SetScript("OnClick", function()
         InitSV()
         local cur = (fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) and true or false
@@ -1357,6 +1429,46 @@ local function CreateOptionsWindow()
         if GameTooltip then GameTooltip:Hide() end
     end)
     f.btnAutoLoot = btnAutoLoot
+
+    local btnNPCName = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
+    btnNPCName:SetSize(BTN_W, BTN_H)
+    btnNPCName:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_AUTOLOOT_Y)
+    btnNPCName:SetScript("OnClick", function()
+        InitSV()
+        local acc = fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
+        if acc == nil then
+            fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
+            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = true
+            print("|cff00ccff[FAO]|r NPC Name: |cff00ff00ON ACC|r")
+        elseif acc == true then
+            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = false
+            print("|cff00ccff[FAO]|r NPC Name: |cffff0000OFF ACC|r")
+        else
+            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = nil
+            fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
+            print("|cff00ccff[FAO]|r NPC Name: |cff00ff00ON|r")
+        end
+        ApplyNPCNameplatesSettingOnWorld()
+        UpdateNPCNameButton()
+    end)
+    btnNPCName:SetScript("OnEnter", function()
+        if GameTooltip then
+            GameTooltip:SetOwner(f, "ANCHOR_NONE")
+            GameTooltip:ClearAllPoints()
+            GameTooltip:SetPoint("BOTTOM", btnNPCName, "TOP", 0, 10)
+            GameTooltip:SetText("Friendly NPC Nameplates")
+            GameTooltip:AddLine("Cycles: ON (default) -> ON ACC -> OFF ACC", 1, 1, 1, true)
+            local cur = GetFriendlyNPCNameplatesSafe()
+            if cur ~= nil then
+                GameTooltip:AddLine("Current CVar: "..(cur and "ON" or "OFF"), 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end
+    end)
+    btnNPCName:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    f.btnNPCName = btnNPCName
 
     local btnAutoOpen = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
     btnAutoOpen:SetSize(BTN_W, BTN_H)
@@ -1473,6 +1585,7 @@ local function CreateOptionsWindow()
 
         UpdateAutoOpenButton()
         UpdateAutoLootButton()
+        UpdateNPCNameButton()
         UpdateGreatVaultButton()
         UpdateCacheLockButton()
         UpdateTalentButtons()
@@ -1699,6 +1812,7 @@ local function CreateOptionsWindow()
         InitSV()
         UpdateAutoOpenButton()
         UpdateAutoLootButton()
+        UpdateNPCNameButton()
         UpdateGreatVaultButton()
         UpdateCacheLockButton()
         UpdateTalentButtons()
@@ -1712,6 +1826,7 @@ local function CreateOptionsWindow()
 
     UpdateAutoOpenButton()
     UpdateAutoLootButton()
+    UpdateNPCNameButton()
     UpdateGreatVaultButton()
     UpdateCacheLockButton()
     UpdateTalentButtons()
