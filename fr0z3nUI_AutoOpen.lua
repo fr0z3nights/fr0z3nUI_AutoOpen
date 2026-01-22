@@ -1,7 +1,24 @@
 local addonName, ns = ...
-local lastOpenTime, atBank, atMail = 0, false, false
+local lastOpenTime = 0
+local atBank, atMail, atMerchant, atTrade, atAuction = false, false, false, false, false
+local scanPending = false
+local cachePauseSeq = 0
 local didPruneCustomWhitelists = false
 local lastTalentsDebugAt, lastTalentsDebugLine = 0, nil
+
+local function IsLootOpenSafe()
+    if C_Loot and C_Loot.IsLootOpen then
+        local ok, v = pcall(C_Loot.IsLootOpen)
+        if ok and v == true then
+            return true
+        end
+    end
+    local lf = _G and _G["LootFrame"]
+    if lf and lf.IsShown and lf:IsShown() then
+        return true
+    end
+    return false
+end
 
 local function GetAutoLootDefaultSafe()
     if GetCVarBool then
@@ -741,7 +758,8 @@ local frame = CreateFrame('Frame', 'fr0z3nUI_AutoOpenFrame')
 function frame:RunScan()
     if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
     if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
-    if atBank or atMail or InCombatLockdown() or LootFrame:IsShown() then return end
+    if atBank or atMail or atMerchant or atTrade or atAuction then return end
+    if (InCombatLockdown and InCombatLockdown()) or IsLootOpenSafe() then return end
     if (GetTime() - lastOpenTime) < GetOpenCooldown() then return end
     
     for b = 0, 4 do
@@ -807,6 +825,21 @@ frame:RegisterEvent('BAG_UPDATE_DELAYED'); frame:RegisterEvent('PLAYER_LOGIN'); 
 frame:RegisterEvent('PLAYER_ENTERING_WORLD')
 frame:RegisterEvent('PLAYER_LEVEL_UP')
 frame:RegisterEvent('BANKFRAME_OPENED'); frame:RegisterEvent('BANKFRAME_CLOSED'); frame:RegisterEvent('MAIL_SHOW'); frame:RegisterEvent('MAIL_CLOSED')
+frame:RegisterEvent('MERCHANT_SHOW'); frame:RegisterEvent('MERCHANT_CLOSED')
+frame:RegisterEvent('TRADE_SHOW'); frame:RegisterEvent('TRADE_CLOSED')
+frame:RegisterEvent('AUCTION_HOUSE_SHOW'); frame:RegisterEvent('AUCTION_HOUSE_CLOSED')
+
+local function RequestScan(delay)
+    delay = tonumber(delay) or 0
+    if scanPending then return end
+    scanPending = true
+    C_Timer.After(delay, function()
+        scanPending = false
+        if frame and frame.RunScan then
+            frame:RunScan()
+        end
+    end)
+end
 
 frame:SetScript('OnEvent', function(self, event, ...)
     if event == "PLAYER_LOGIN" then 
@@ -836,6 +869,12 @@ frame:SetScript('OnEvent', function(self, event, ...)
         C_Timer.After(2, function()
             MaybeHandleTalents(isInitialLogin, isReloadingUi, 0, seq)
         end)
+
+        -- Re-scan after zone/instance transitions and /reload.
+        -- Bag events usually cover this, but PLAYER_ENTERING_WORLD is a reliable backstop.
+        if not isInitialLogin then
+            RequestScan(1.0)
+        end
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = ...
         InitSV()
@@ -855,8 +894,20 @@ frame:SetScript('OnEvent', function(self, event, ...)
         atMail = true
     elseif event == "MAIL_CLOSED" then 
         atMail = false
+    elseif event == "MERCHANT_SHOW" then
+        atMerchant = true
+    elseif event == "MERCHANT_CLOSED" then
+        atMerchant = false
+    elseif event == "TRADE_SHOW" then
+        atTrade = true
+    elseif event == "TRADE_CLOSED" then
+        atTrade = false
+    elseif event == "AUCTION_HOUSE_SHOW" then
+        atAuction = true
+    elseif event == "AUCTION_HOUSE_CLOSED" then
+        atAuction = false
     elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED" then
-        C_Timer.After(0.3, function() self:RunScan() end)
+        RequestScan(0.3)
     end
 end)
 
@@ -865,16 +916,47 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
     local id = data and data.id
 
     if id then
-        if ns.exclude and ns.exclude[id] then
-            tooltip:AddLine("|cff00ccff[FAO]|r Item is |cffff0000Excluded|r")
+        -- FAO status summary (only show when relevant)
+        local isExcludedDb = (ns and ns.exclude and ns.exclude[id]) and true or false
+        local isAdded = false
+        local addedSource -- "ACC" | "CHAR" | "ADDON"
+        if fr0z3nUI_AutoOpen_Acc and fr0z3nUI_AutoOpen_Acc[id] then
+            isAdded = true
+            addedSource = "ACC"
+        elseif fr0z3nUI_AutoOpen_Char and fr0z3nUI_AutoOpen_Char[id] then
+            isAdded = true
+            addedSource = "CHAR"
+        elseif ns and ns.items and ns.items[id] then
+            isAdded = true
+            addedSource = "ADDON"
         end
 
-        if ns.items and ns.items[id] then
-            tooltip:AddLine("|cff00ccff[FAO]|r Item is |cff00ff00Added|r")
+        local isDisabledAcc = (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id]) and true or false
+        local isDisabledChar = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id]) and true or false
+
+        local statusLine
+        if isExcludedDb then
+            statusLine = "Excluded"
+        elseif isDisabledAcc then
+            statusLine = "Excluded Acc"
+        elseif isDisabledChar then
+            statusLine = "Excluded Char"
+        elseif isAdded then
+            if addedSource == "ACC" then
+                statusLine = "Auto Open (Acc)"
+            elseif addedSource == "CHAR" then
+                statusLine = "Auto Open (Char)"
+            else
+                statusLine = "Auto Open"
+            end
+        end
+
+        if statusLine then
+            tooltip:AddLine("|cff00ccff[FAO]|r " .. statusLine)
         end
 
         if ns.timed and ns.timed[id] then
-            tooltip:AddLine("|cff00ccff[FAO]|r Item is |cffffff00Timed|r")
+            tooltip:AddLine("|cff00ccff[FAO]|r Timed")
         end
 
         if ns.levelLocked and ns.levelLocked[id] then
@@ -1130,6 +1212,24 @@ local function CreateOptionsWindow()
     edit:SetScript("OnEditFocusLost", function()
         UpdatePlaceholder()
     end)
+
+    -- Shift-click an item while this box has focus to set the itemID.
+    -- Uses ChatEdit_InsertLink because WoW routes modified item clicks through it.
+    if not frame._faoHookedInsertLink and type(ChatEdit_InsertLink) == "function" then
+        frame._faoHookedInsertLink = true
+        local orig = ChatEdit_InsertLink
+        ChatEdit_InsertLink = function(text)
+            if f and f.edit and f.edit.HasFocus and f.edit:HasFocus() and type(text) == "string" then
+                local id = tonumber(text:match("item:(%d+):")) or tonumber(text:match("item:(%d+)"))
+                if id then
+                    f.edit:SetText(tostring(id))
+                    if f.edit.HighlightText then f.edit:HighlightText() end
+                    return true
+                end
+            end
+            return orig(text)
+        end
+    end
 
     -- Reserve a fixed space for name/reason so buttons never move.
     local textArea = CreateFrame("Frame", nil, itemsPanel)
@@ -1849,12 +1949,51 @@ SlashCmdList["FAO"] = function(msg)
         print("|cff00ccff[FAO]|r Commands:")
         print("|cff00ccff[FAO]|r /fao              - open/toggle window")
         print("|cff00ccff[FAO]|r /fao <itemid>      - open window + set item id")
+        print("|cff00ccff[FAO]|r /fao on|off        - auto-open containers (shorthand)")
         print("|cff00ccff[FAO]|r /fao ao on|off     - auto-open containers")
+        print("|cff00ccff[FAO]|r /fao cache [sec]   - pause auto-open briefly")
         print("|cff00ccff[FAO]|r /fao autoloot       - toggle forcing Auto Loot ON at login")
         print("|cff00ccff[FAO]|r /fao cd <seconds>  - open cooldown (0-10)")
         print("|cff00ccff[FAO]|r /fao gv            - cycle Great Vault OFF/ON/RL")
         print("|cff00ccff[FAO]|r /fao talents       - talent reminder help")
         print("|cff00ccff[FAO]|r /fao debug talents - toggle talent debug output")
+        return
+    end
+
+    -- Shorthand: /fao on|off
+    if cmd == "on" or cmd == "off" then
+        fr0z3nUI_AutoOpen_CharSettings.autoOpen = (cmd == "on")
+        if cmd == "on" then
+            print("|cff00ccff[FAO]|r Auto Open: |cff00ff00ON|r")
+            C_Timer.After(0.1, function() if frame and frame.RunScan then frame:RunScan() end end)
+        else
+            print("|cff00ccff[FAO]|r Auto Open: |cffff0000OFF|r")
+        end
+        return
+    end
+
+    if cmd == "cache" then
+        local seconds = tonumber(arg) or 2.2
+        if seconds < 2 then seconds = 2 end
+        if seconds > 10 then seconds = 10 end
+
+        local wasEnabled = (fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false)
+        if not wasEnabled then
+            return
+        end
+
+        cachePauseSeq = cachePauseSeq + 1
+        local seq = cachePauseSeq
+        fr0z3nUI_AutoOpen_CharSettings.autoOpen = false
+
+        C_Timer.After(seconds, function()
+            if seq ~= cachePauseSeq then return end
+            -- Only restore if still off (user didn't manually change it).
+            if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then
+                fr0z3nUI_AutoOpen_CharSettings.autoOpen = true
+                RequestScan(0.2)
+            end
+        end)
         return
     end
 
