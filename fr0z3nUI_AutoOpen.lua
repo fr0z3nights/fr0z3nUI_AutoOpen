@@ -1524,7 +1524,11 @@ frame:SetScript('OnEvent', function(self, event, ...)
         if frame._gvPending == nil then
             frame._gvPending = false
         end
-        QueueGreatVaultAutoOpen(isReloadingUi)
+        -- Only auto-open on the initial login load. Zoning/hearth/portals also fire
+        -- PLAYER_ENTERING_WORLD and should not trigger the vault.
+        if isInitialLogin then
+            QueueGreatVaultAutoOpen(isReloadingUi)
+        end
 
         -- Talents: useful on /reload, portals, and instance transitions.
         talentCheckSeq = talentCheckSeq + 1
