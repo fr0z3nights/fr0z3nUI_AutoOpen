@@ -1,5 +1,5 @@
 local _, ns = ...
-ns.timed = ns.items or {} -- Keeping your existing namespace logic
+ns.timed = ns.timed or {}
 
 -- [ TIMED REWARDS DATABASE ]
 -- Set to the appropriate hatch time (Example: 259200 for 3 days or 0 if immediate)

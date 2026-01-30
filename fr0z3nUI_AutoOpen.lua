@@ -1014,8 +1014,10 @@ local function IsHeroTalentTreeSelectedSafe()
                 if v > 0 then return true end
                 return false
             end
+            -- Nil here often means the talent system isn't fully initialized yet.
+            -- Treat as unknown and let the retry logic decide.
             if v == nil then
-                return false
+                return nil
             end
         end
     end
@@ -1025,7 +1027,7 @@ local function IsHeroTalentTreeSelectedSafe()
         local ok, specs = pcall(C_ClassTalents.GetHeroTalentSpecs)
         if ok and type(specs) == "table" then
             if #specs > 0 then
-                return false
+                return nil
             end
         end
     end
@@ -1168,6 +1170,15 @@ local function MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt, seq)
         end
 
         if heroSelected == false then
+            -- Hero selection can transiently read as "not selected" while the talent system warms up.
+            -- Require it to persist for a few retries before notifying.
+            if attempt < 5 then
+                C_Timer.After(1, function()
+                    MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt + 1, seq)
+                end)
+                return
+            end
+
             -- Hero tree not selected: points may not be visible to the APIs yet, but the player still needs to act.
             if now > 0 and (now - lastTalentNotifyAt) < 10 then return end
             lastTalentNotifyAt = now
@@ -1244,6 +1255,13 @@ local function MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt, seq)
         end
 
         if heroSelected == false then
+            if attempt < 5 then
+                C_Timer.After(1, function()
+                    MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt + 1, seq)
+                end)
+                return
+            end
+
             if now > 0 and (now - lastTalentNotifyAt) < 10 then return end
             lastTalentNotifyAt = now
             lastTalentNotifiedPoints = "?"
@@ -1635,6 +1653,9 @@ frame:SetScript('OnEvent', function(self, event, ...)
 end)
 
 -- [ TOOLTIP COUNTDOWN ]
+if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
+    and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item
+then
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
     local id = data and data.id
 
@@ -1733,6 +1754,7 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
         end
     end
 end)
+end
 
 -- [ SLASH COMMAND + SIMPLE OPTIONS WINDOW ]
 local function AddItemByID(id, scope)
