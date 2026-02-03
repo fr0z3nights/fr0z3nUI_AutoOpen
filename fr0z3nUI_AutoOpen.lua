@@ -2,12 +2,61 @@ local addonName, ns = ...
 local lastOpenTime = 0
 local atBank, atMail, atMerchant, atTrade, atAuction = false, false, false, false, false
 local scanPending = false
+local RequestScan
 local cachePauseSeq = 0
 local didPruneCustomWhitelists = false
 local lastTalentsDebugAt, lastTalentsDebugLine = 0, nil
 local autoLootKickSeq = 0
 local lastAutoLootEnforceAt = 0
 local frame
+
+local PREFIX = "|cff00ccff[FAO]|r "
+local PRINT_QUEUE_START_DELAY = 0.05
+local PRINT_QUEUE_STEP_DELAY = 0.12
+local MAX_QUEUED_PRINTS = 50
+
+local function Print(msg)
+    print(PREFIX .. tostring(msg or ""))
+end
+
+local _printQueue, _printQueueRunning = {}, false
+local function PrintDelayed(msg)
+    if msg == nil then return end
+
+    if #_printQueue >= MAX_QUEUED_PRINTS then
+        -- Prevent unbounded growth if something goes wrong.
+        _printQueue = {}
+    end
+    _printQueue[#_printQueue + 1] = msg
+
+    if _printQueueRunning then return end
+    if not (C_Timer and C_Timer.After) then
+        -- Fallback: no timers, print immediately.
+        Print(msg)
+        return
+    end
+
+    _printQueueRunning = true
+
+    local function step()
+        if #_printQueue == 0 then
+            _printQueueRunning = false
+            return
+        end
+
+        local nextMsg = table.remove(_printQueue, 1)
+        Print(nextMsg)
+
+        if #_printQueue == 0 then
+            _printQueueRunning = false
+            return
+        end
+
+        C_Timer.After(PRINT_QUEUE_STEP_DELAY, step)
+    end
+
+    C_Timer.After(PRINT_QUEUE_START_DELAY, step)
+end
 
 local function IsLootOpenSafe()
     if C_Loot and C_Loot.IsLootOpen then
@@ -1429,8 +1478,21 @@ function frame:RunScan(isKick)
     if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
     if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
     if atBank or atMail or atMerchant or atTrade or atAuction then return end
-    if (InCombatLockdown and InCombatLockdown()) or IsLootOpenSafe() then return end
-    if (GetTime() - lastOpenTime) < GetOpenCooldown() then return end
+    if (InCombatLockdown and InCombatLockdown()) then return end
+    if IsLootOpenSafe() then
+        -- Loot frame can stick around briefly; retry.
+        if RequestScan then RequestScan(0.5) end
+        return
+    end
+
+    local now = (GetTime and GetTime()) or 0
+    local cd = GetOpenCooldown()
+    if now > 0 and (now - lastOpenTime) < cd then
+        local remaining = cd - (now - lastOpenTime)
+        if remaining < 0 then remaining = 0 end
+        if RequestScan then RequestScan(remaining + 0.05) end
+        return
+    end
     
     for b = 0, 4 do
         for s = 1, C_Container.GetContainerNumSlots(b) do
@@ -1481,11 +1543,15 @@ function frame:RunScan(isKick)
                         local info = C_Container.GetContainerItemInfo(b, s)
                         if info and info.hasLoot and not info.isLocked then
                             if isKick then
-                                print("|cff00ccff[FAO]|r " .. (info.hyperlink or tostring(id)) .. " kicked open")
+                                PrintDelayed((info.hyperlink or tostring(id)) .. " kicked open")
                             else
-                                print("|cff00ccff[FAO]|r Opening ".. (info.hyperlink or id))
+                                PrintDelayed("Opening " .. (info.hyperlink or id))
                             end
-                            C_Container.UseContainerItem(b, s); lastOpenTime = GetTime(); return 
+                            C_Container.UseContainerItem(b, s)
+                            lastOpenTime = (GetTime and GetTime()) or 0
+                            -- Chain-open: keep scanning until all eligible items are opened.
+                            if RequestScan then RequestScan(GetOpenCooldown() + 0.05) end
+                            return
                         end
                     end
                 end
@@ -1509,16 +1575,46 @@ frame:RegisterEvent('PLAYER_INTERACTION_MANAGER_FRAME_SHOW'); frame:RegisterEven
 -- Used to debounce the post-vendor "kick" scan.
 local merchantKickSeq = 0
 
-local function RequestScan(delay)
+RequestScan = function(delay)
     delay = tonumber(delay) or 0
-    if scanPending then return end
-    scanPending = true
-    C_Timer.After(delay, function()
-        scanPending = false
-        if frame and frame.RunScan then
-            frame:RunScan()
+    if delay < 0 then delay = 0 end
+    if not (C_Timer and (C_Timer.NewTimer or C_Timer.After)) then return end
+
+    local now = (GetTime and GetTime()) or 0
+    local targetAt = (now > 0) and (now + delay) or nil
+
+    -- Debounce: keep the earliest scheduled scan.
+    if frame and frame._scanTimer then
+        if frame._scanTimerAt and targetAt and frame._scanTimerAt <= targetAt then
+            return
         end
-    end)
+        if frame._scanTimer.Cancel then
+            frame._scanTimer:Cancel()
+        end
+        frame._scanTimer = nil
+        frame._scanTimerAt = nil
+    end
+
+    scanPending = true
+    frame._scanTimerAt = targetAt
+    if C_Timer.NewTimer then
+        frame._scanTimer = C_Timer.NewTimer(delay, function()
+            scanPending = false
+            frame._scanTimer = nil
+            frame._scanTimerAt = nil
+            if frame and frame.RunScan then
+                frame:RunScan()
+            end
+        end)
+    else
+        -- Fallback: no cancel handle; best-effort.
+        C_Timer.After(delay, function()
+            scanPending = false
+            if frame and frame.RunScan then
+                frame:RunScan()
+            end
+        end)
+    end
 end
 
 frame:SetScript('OnEvent', function(self, event, ...)
