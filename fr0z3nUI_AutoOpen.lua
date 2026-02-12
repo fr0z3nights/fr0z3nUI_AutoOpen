@@ -2215,6 +2215,7 @@ local function CreateOptionsWindow()
     btnChar:SetSize(BTN_W, BTN_H)
     btnChar:SetPoint("BOTTOM", itemsPanel, "BOTTOM", -ADD_ROW_X, 28)
     btnChar:SetText("Character")
+    if btnChar.RegisterForClicks then btnChar:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     btnChar:Disable()
     f.btnChar = btnChar
 
@@ -2222,6 +2223,7 @@ local function CreateOptionsWindow()
     btnAcc:SetSize(BTN_W, BTN_H)
     btnAcc:SetPoint("BOTTOM", itemsPanel, "BOTTOM", ADD_ROW_X, 28)
     btnAcc:SetText("Account")
+    if btnAcc.RegisterForClicks then btnAcc:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
     btnAcc:Disable()
     f.btnAcc = btnAcc
 
@@ -2235,13 +2237,41 @@ local function CreateOptionsWindow()
         return false
     end
 
-    local function SetButtonState(btn, label, isDisabled)
+    local function SetButtonColor(btn, label, state)
         if not btn then return end
-        if isDisabled then
-            btn:SetText("|cffffff00"..label.."|r") -- yellow = re-enable
-        else
-            btn:SetText("|cffff0000"..label.."|r") -- red = disable
+        if state == "inactive" then
+            btn:SetText("|cffffff00" .. label .. "|r") -- yellow
+            return
         end
+        if state == "active" then
+            btn:SetText("|cff00ff00" .. label .. "|r") -- green
+            return
+        end
+        if state == "disabled" then
+            btn:SetText("|cffff9900" .. label .. "|r") -- orange
+            return
+        end
+        btn:SetText(label)
+    end
+
+    local function SetDynamicTip(btn, getLines)
+        if not (btn and btn.SetScript and getLines) then return end
+        btn:SetScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            local title, l1, l2, l3 = getLines()
+            if not title then return end
+            GameTooltip:SetOwner(self, "ANCHOR_NONE")
+            GameTooltip:ClearAllPoints()
+            GameTooltip:SetPoint("TOP", self, "BOTTOM", 0, -6)
+            GameTooltip:SetText(title)
+            if l1 then GameTooltip:AddLine(l1, 1, 1, 1, true) end
+            if l2 then GameTooltip:AddLine(l2, 1, 1, 1, true) end
+            if l3 then GameTooltip:AddLine(l3, 1, 1, 1, true) end
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
     end
 
     local function UpdateScopeButtons(id)
@@ -2252,69 +2282,126 @@ local function CreateOptionsWindow()
             return
         end
 
-        local openable = IsOpenableID(id)
+        local inDB = (ns and ns.items and ns.items[id]) and true or false
+        local inAcc = (fr0z3nUI_AutoOpen_Acc and fr0z3nUI_AutoOpen_Acc[id]) and true or false
+        local inChar = (fr0z3nUI_AutoOpen_Char and fr0z3nUI_AutoOpen_Char[id]) and true or false
 
-        if openable then
-            if f.reasonLabel then
-                f.reasonLabel:SetText("|cffaaaaaaRed = disable auto-open. Yellow = re-enable.|r")
-            end
+        local accRuleExists = inDB or inAcc
+        local charRuleExists = inDB or inChar
 
-            if f.btnAcc then
-                f.btnAcc:Enable()
-                local isDisabledAcc = (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id]) and true or false
-                SetButtonState(f.btnAcc, "Account", isDisabledAcc)
-                f.btnAcc:SetScript("OnClick", function()
-                    InitSV()
-                    local t = fr0z3nUI_AutoOpen_Settings.disabled
-                    if t[id] then
-                        t[id] = nil
-                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Account")
-                    else
-                        t[id] = true
-                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Account")
-                    end
-                    UpdateScopeButtons(id)
-                end)
-            end
+        local isDisabledAcc = (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id]) and true or false
+        local isDisabledChar = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id]) and true or false
 
-            if f.btnChar then
-                f.btnChar:Enable()
-                local isDisabledChar = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id]) and true or false
-                SetButtonState(f.btnChar, "Character", isDisabledChar)
-                f.btnChar:SetScript("OnClick", function()
-                    InitSV()
-                    local t = fr0z3nUI_AutoOpen_CharSettings.disabled
-                    if t[id] then
-                        t[id] = nil
-                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Character")
-                    else
-                        t[id] = true
-                        print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Character")
-                    end
-                    UpdateScopeButtons(id)
-                end)
-            end
-        else
-            if f.reasonLabel then f.reasonLabel:SetText("") end
-
-            if f.btnAcc then
-                f.btnAcc:Enable()
-                f.btnAcc:SetText("Account")
-                f.btnAcc:SetScript("OnClick", function()
+        if f.btnAcc then
+            f.btnAcc:Enable()
+            local aState
+            if not accRuleExists then aState = "inactive" else aState = isDisabledAcc and "disabled" or "active" end
+            SetButtonColor(f.btnAcc, "Account", aState)
+            f.btnAcc:SetScript("OnClick", function(_, mouseButton)
+                InitSV()
+                if not accRuleExists then
                     local id2 = f.validID or tonumber(edit:GetText() or "")
                     AddItemByID(id2, "acc")
                     DoValidate()
-                end)
-            end
-            if f.btnChar then
-                f.btnChar:Enable()
-                f.btnChar:SetText("Character")
-                f.btnChar:SetScript("OnClick", function()
+                    return
+                end
+
+                if mouseButton == "RightButton" then
+                    if inAcc then
+                        fr0z3nUI_AutoOpen_Acc[id] = nil
+                        if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled then
+                            fr0z3nUI_AutoOpen_Settings.disabled[id] = nil
+                        end
+                        print("|cff00ccff[FAO]|r Removed from Account whitelist: '" .. (GetItemNameSafe(id) or id) .. "'")
+                        DoValidate()
+                        return
+                    end
+                    print("|cff00ccff[FAO]|r Built-in items can't be removed. Left-click to disable instead.")
+                    return
+                end
+
+                local t = fr0z3nUI_AutoOpen_Settings.disabled
+                if t[id] then
+                    t[id] = nil
+                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Account")
+                else
+                    t[id] = true
+                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Account")
+                end
+                UpdateScopeButtons(id)
+            end)
+
+            SetDynamicTip(f.btnAcc, function()
+                local cur = f.validID or tonumber(edit:GetText() or "")
+                if not cur then return "Account", "Enter an ItemID first." end
+
+                if not accRuleExists then
+                    if charRuleExists then
+                        return "Account (Inactive)", "Left-click: add Account whitelist"
+                    end
+                    return "Account (Inactive)", "Left-click: add Account whitelist"
+                end
+                if isDisabledAcc then
+                    return "Account (Disabled)", "Left-click: re-enable auto-open on Account", (inAcc and "Right-click: remove from Account whitelist" or nil)
+                end
+                return "Account (Active)", "Left-click: disable auto-open on Account", (inAcc and "Right-click: remove from Account whitelist" or "(Built-in item)")
+            end)
+        end
+
+        if f.btnChar then
+            f.btnChar:Enable()
+            local cState
+            if not charRuleExists then cState = "inactive" else cState = isDisabledChar and "disabled" or "active" end
+            SetButtonColor(f.btnChar, "Character", cState)
+            f.btnChar:SetScript("OnClick", function(_, mouseButton)
+                InitSV()
+                if not charRuleExists then
                     local id2 = f.validID or tonumber(edit:GetText() or "")
                     AddItemByID(id2, "char")
                     DoValidate()
-                end)
-            end
+                    return
+                end
+
+                if mouseButton == "RightButton" then
+                    if inChar then
+                        fr0z3nUI_AutoOpen_Char[id] = nil
+                        if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled then
+                            fr0z3nUI_AutoOpen_CharSettings.disabled[id] = nil
+                        end
+                        print("|cff00ccff[FAO]|r Removed from Character whitelist: '" .. (GetItemNameSafe(id) or id) .. "'")
+                        DoValidate()
+                        return
+                    end
+                    print("|cff00ccff[FAO]|r Built-in items can't be removed. Left-click to disable instead.")
+                    return
+                end
+
+                local t = fr0z3nUI_AutoOpen_CharSettings.disabled
+                if t[id] then
+                    t[id] = nil
+                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Character")
+                else
+                    t[id] = true
+                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Character")
+                end
+                UpdateScopeButtons(id)
+            end)
+
+            SetDynamicTip(f.btnChar, function()
+                local cur = f.validID or tonumber(edit:GetText() or "")
+                if not cur then return "Character", "Enter an ItemID first." end
+
+                if not charRuleExists then
+                    if accRuleExists then
+                        return "Character (Inactive)", "Left-click: add Character whitelist"
+                    end
+                    return "Character (Inactive)", "Left-click: add Character whitelist"
+                end
+                if isDisabledChar then
+                    return "Character (Disabled)", "Left-click: re-enable auto-open on this character", (inChar and "Right-click: remove from Character whitelist" or nil)
+                end
+                return "Character (Active)", "Left-click: disable auto-open on this character", (inChar and "Right-click: remove from Character whitelist" or "(Built-in item)")
+            end)
         end
     end
 
