@@ -5,7 +5,7 @@
 This WoW addon automatically opens containers (bags, caches, lockboxes) matching expansion-specific item whitelists. The codebase separates concerns into **database modules** and **engine logic**:
 
 - **fr0z3nUI_AutoOpen.lua**: Core scan engine with event handling, saved variable initialization, timer tracking, and tooltip integration
-- **Database modules** (fr0z3nUI_AutoOpenXX.lua, TRZ.lua, 12.lua-01.lua): Namespace tables for exclusions, timed items, and whitelisted IDs per expansion
+- **Database modules** (fr0z3nUI_AutoOpenXPXX.lua, XPTR.lua, XP12.lua-XP01.lua): Namespace tables for exclusions, timed items, and whitelisted IDs per expansion
 - **Namespace (ns)**: Global table shared across modules to store `ns.items`, `ns.exclude`, `ns.timed`
 
 Load order in `fr0z3nUI_AutoOpen.toc` is **database-first** (XX down to 01), then engine last.
@@ -20,10 +20,10 @@ ns.items[12345] = "My Container Name"
 ```
 
 ### Exclusion Database (`ns.exclude`)
-Maps item IDs to metadata tuples: `{ "Display Name", "Reason" }`. Prevents auto-opening of locked boxes, level-gated caches, and manual-only items. Located in `fr0z3nUI_AutoOpenXX.lua`.
+Maps item IDs to metadata tuples: `{ "Display Name", "Reason" }`. Prevents auto-opening of locked boxes, level-gated caches, and manual-only items. Located in `fr0z3nUI_AutoOpenXPXX.lua`.
 
 ### Timed Items (`ns.timed`)
-Maps item ID to `{ duration_seconds, "Display Name" }` for eggs/hatching items. Tracks hatch time in `fr0z3nUI_AutoOpenTR.lua`. Example: `ns.timed[200830] = { 604800, "Zenet Egg" }` (7 days).
+Maps item ID to `{ duration_seconds, "Display Name" }` for eggs/hatching items. Tracks hatch time in `fr0z3nUI_AutoOpenXPTR.lua`. Example: `ns.timed[200830] = { 604800, "Zenet Egg" }` (7 days).
 
 ### Saved Variables
 - `fr0z3nUI_AutoOpen_Acc`: Account-wide custom whitelist (user-added items)
@@ -49,10 +49,10 @@ Scan triggers on `BAG_UPDATE_DELAYED`, `PLAYER_REGEN_ENABLED` (combat exit), and
 1. Determine WoW expansion (e.g., Expansion 10 = Dragonflight)
 2. Open corresponding `fr0z3nUI_AutoOpen{NN}.lua` (NN = expansion number)
 3. Add to `ns.items` table: `ns.items[ITEM_ID] = "Display Name"`
-4. If excluded, add reasoning to `fr0z3nUI_AutoOpenXX.lua` instead
+4. If excluded, add reasoning to `fr0z3nUI_AutoOpenXPXX.lua` instead
 
 ### Adding Timed Items
-Update `fr0z3nUI_AutoOpenTR.lua`:
+Update `fr0z3nUI_AutoOpenXPTR.lua`:
 ```lua
 ns.timed[ITEM_ID] = { duration_in_seconds, "Egg/Hatch Name" }
 -- Example: 3 days = 259200, 7 days = 604800

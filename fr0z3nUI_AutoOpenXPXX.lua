@@ -87,7 +87,7 @@ ns.exclude[ 24476] = { "Jaggal Clam", "Does Not Open" }
 ns.exclude[198657] = { "Forgotten Jewelry Box", "Requires Physical Key (Locked)" }
 ns.exclude[194037] = { "Heavy Chest", "Requires Physical Key (Locked)" }
 
--- Legacy / Classic-era (migrated from fr0z3nUI_AutoOpen01.lua)
+-- Legacy / Classic-era (migrated from fr0z3nUI_AutoOpenXP01.lua)
 -- Profession-locked / manual
 ns.exclude[ 21743] = { "Large Cluster Rocket Recipes", "Profession Locked (Manual)" }
 ns.exclude[ 21742] = { "Large Rocket Recipes", "Profession Locked (Manual)" }

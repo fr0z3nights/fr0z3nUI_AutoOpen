@@ -9,6 +9,9 @@ local lastTalentsDebugAt, lastTalentsDebugLine = 0, nil
 local autoLootKickSeq = 0
 local lastAutoLootEnforceAt = 0
 local frame
+local WATCHDOG_INTERVAL = 10
+local WATCHDOG_MIN_SCAN_GAP = 12
+local IsLootOpenSafe
 
 local PREFIX = "|cff00ccff[FAO]|r "
 local PRINT_QUEUE_START_DELAY = 0.05
@@ -58,7 +61,107 @@ local function PrintDelayed(msg)
     C_Timer.After(PRINT_QUEUE_START_DELAY, step)
 end
 
-local function IsLootOpenSafe()
+local function IsGlobalFrameShownSafe(frameName)
+    local f = _G and frameName and _G[frameName]
+    if not (f and f.IsShown) then return false end
+    local ok, shown = pcall(f.IsShown, f)
+    return ok and shown == true
+end
+
+local function RefreshInteractionFlagsFromUI()
+    -- Self-heal the cached interaction flags.
+    -- Missing *_CLOSED events (or UI path differences) can otherwise leave these stuck true
+    -- and the scan engine will appear "dead" until /reload.
+    if _G and (_G["BankFrame"] or _G["GuildBankFrame"]) then
+        atBank = IsGlobalFrameShownSafe("BankFrame") or IsGlobalFrameShownSafe("GuildBankFrame")
+    end
+    if _G and _G["MailFrame"] then
+        atMail = IsGlobalFrameShownSafe("MailFrame")
+    end
+    if _G and _G["MerchantFrame"] then
+        atMerchant = IsGlobalFrameShownSafe("MerchantFrame")
+    end
+    if _G and _G["TradeFrame"] then
+        atTrade = IsGlobalFrameShownSafe("TradeFrame")
+    end
+    if _G and (_G["AuctionHouseFrame"] or _G["AuctionFrame"]) then
+        atAuction = IsGlobalFrameShownSafe("AuctionHouseFrame") or IsGlobalFrameShownSafe("AuctionFrame")
+    end
+end
+
+local function IsAutoOpenEnabledNow()
+    if not fr0z3nUI_AutoOpen_CharSettings then return true end
+    return fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false
+end
+
+local function IsScanAllowedNow()
+    if not IsAutoOpenEnabledNow() then return false, "auto open OFF" end
+    RefreshInteractionFlagsFromUI()
+    if atBank then return false, "bank" end
+    if atMail then return false, "mail" end
+    if atMerchant then return false, "merchant" end
+    if atTrade then return false, "trade" end
+    if atAuction then return false, "auction" end
+    if (InCombatLockdown and InCombatLockdown()) then return false, "combat" end
+    if IsLootOpenSafe() then return false, "loot window" end
+    if not (C_Container and C_Container.GetContainerNumSlots and C_Container.GetContainerItemID and C_Container.GetContainerItemInfo and C_Container.UseContainerItem) then
+        return false, "bag API"
+    end
+    return true, nil
+end
+
+local function WatchdogDebug(msg)
+    if not (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.debugWatchdogAcc) then
+        return
+    end
+    if not (frame and msg) then return end
+
+    local now = (GetTime and GetTime()) or 0
+
+    -- Dedupe + throttle: only print when the message changes, or after a cooldown.
+    if frame._watchdogLastMsg == msg and now > 0 and frame._watchdogLastAt and (now - frame._watchdogLastAt) < 30 then
+        return
+    end
+
+    frame._watchdogLastMsg = msg
+    frame._watchdogLastAt = now
+    PrintDelayed(msg)
+end
+
+local function EnsureWatchdogTicker()
+    if not (C_Timer and C_Timer.NewTicker) then return end
+    if not frame then return end
+    if frame._watchdogTicker then return end
+
+    frame._watchdogTicker = C_Timer.NewTicker(WATCHDOG_INTERVAL, function()
+        if not frame then return end
+        if not RequestScan then return end
+        if scanPending then
+            WatchdogDebug("Watchdog: scan already pending")
+            return
+        end
+        if frame._scanTimer then
+            WatchdogDebug("Watchdog: scan timer active")
+            return
+        end
+        local ok, why = IsScanAllowedNow()
+        if not ok then
+            WatchdogDebug("Watchdog: blocked by " .. tostring(why or "unknown"))
+            return
+        end
+
+        local now = (GetTime and GetTime()) or 0
+        local last = tonumber(frame._lastScanAt or 0) or 0
+        if now > 0 and last > 0 and (now - last) < WATCHDOG_MIN_SCAN_GAP then
+            return
+        end
+
+        WatchdogDebug("Watchdog: kicking scan")
+        RequestScan(0.1)
+    end)
+end
+
+IsLootOpenSafe = function()
     if C_Loot and C_Loot.IsLootOpen then
         local ok, v = pcall(C_Loot.IsLootOpen)
         if ok and v == true then
@@ -292,9 +395,17 @@ local function IsProbablyOpenableCacheID(id)
         return true, "bypass"
     end
 
-    -- If it looks equippable, it's almost certainly not an openable cache.
+    -- Cheap early-outs from instant item info.
     if C_Item and C_Item.GetItemInfoInstant then
-        local _, _, _, equipLoc = C_Item.GetItemInfoInstant(id)
+        local _, _, _, equipLoc, _, classID = C_Item.GetItemInfoInstant(id)
+
+        -- Reagents are never caches.
+        local reagentClass = (Enum and Enum.ItemClass and Enum.ItemClass.Reagent) or 5
+        if classID == reagentClass then
+            return false, "reagent"
+        end
+
+        -- If it looks equippable, it's almost certainly not an openable cache.
         if type(equipLoc) == "string" and equipLoc ~= "" then
             return false, "equippable"
         end
@@ -421,6 +532,11 @@ local function InitSV()
         fr0z3nUI_AutoOpen_CharSettings.debugGreatVault = false
     end
 
+    -- Debug toggles (account-wide)
+    if type(fr0z3nUI_AutoOpen_Settings.debugWatchdogAcc) ~= "boolean" then
+        fr0z3nUI_AutoOpen_Settings.debugWatchdogAcc = false
+    end
+
     -- Auto Loot (per-character): when ON, force the account CVar to enabled on login.
     -- Default: ON
     if type(fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin) ~= "boolean" then
@@ -474,6 +590,18 @@ local function InitSV()
         end
         fr0z3nUI_AutoOpen_Settings.trainerLearnDefaulted = true
     end
+
+    -- Minimap button (account-wide)
+    -- Default: OFF
+    if type(fr0z3nUI_AutoOpen_Settings.minimapButton) ~= "boolean" then
+        fr0z3nUI_AutoOpen_Settings.minimapButton = false
+    end
+    if type(fr0z3nUI_AutoOpen_Settings.minimapButtonX) ~= "number" then
+        fr0z3nUI_AutoOpen_Settings.minimapButtonX = -70
+    end
+    if type(fr0z3nUI_AutoOpen_Settings.minimapButtonY) ~= "number" then
+        fr0z3nUI_AutoOpen_Settings.minimapButtonY = -70
+    end
     fr0z3nUI_AutoOpen_Timers = fr0z3nUI_AutoOpen_Timers or {}
 
     -- Cleanup: if a user-added SavedVariable item is now in the addon database,
@@ -493,6 +621,10 @@ local function InitSV()
         didPruneCustomWhitelists = true
     end
 end
+
+-- Forward decls (defined later)
+local UpdateMinimapButtonVisibility
+local ToggleFAOOptionsWindow
 
 -- [ PROFESSION TRAINER AUTO-LEARN ]
 local trainerLearnSeq = 0
@@ -826,14 +958,28 @@ end
 -- [ GREAT VAULT ]
 local function ShowGreatVaultCore()
     if C_AddOns and C_AddOns.LoadAddOn then
-        C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
+        if type(securecall) == "function" then
+            securecall(C_AddOns.LoadAddOn, "Blizzard_WeeklyRewards")
+        else
+            C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
+        end
     end
     if WeeklyRewardsFrame then
-        WeeklyRewardsFrame:Show()
+        if type(securecall) == "function" then
+            securecall(WeeklyRewardsFrame.Show, WeeklyRewardsFrame)
+        else
+            WeeklyRewardsFrame:Show()
+        end
         return
     end
     C_Timer.After(0.5, function()
-        if WeeklyRewardsFrame then WeeklyRewardsFrame:Show() end
+        if WeeklyRewardsFrame then
+            if type(securecall) == "function" then
+                securecall(WeeklyRewardsFrame.Show, WeeklyRewardsFrame)
+            else
+                WeeklyRewardsFrame:Show()
+            end
+        end
     end)
 end
 
@@ -1090,32 +1236,54 @@ local function ShowTalentsUI()
     end
 
     if C_AddOns and C_AddOns.LoadAddOn then
-        C_AddOns.LoadAddOn("Blizzard_PlayerSpells")
-        C_AddOns.LoadAddOn("Blizzard_ClassTalentUI")
-        C_AddOns.LoadAddOn("Blizzard_TalentUI")
+        if type(securecall) == "function" then
+            securecall(C_AddOns.LoadAddOn, "Blizzard_PlayerSpells")
+            securecall(C_AddOns.LoadAddOn, "Blizzard_ClassTalentUI")
+            securecall(C_AddOns.LoadAddOn, "Blizzard_TalentUI")
+        else
+            C_AddOns.LoadAddOn("Blizzard_PlayerSpells")
+            C_AddOns.LoadAddOn("Blizzard_ClassTalentUI")
+            C_AddOns.LoadAddOn("Blizzard_TalentUI")
+        end
     end
 
     local togglePlayerSpellsFrame = _G and _G["TogglePlayerSpellsFrame"]
     if type(togglePlayerSpellsFrame) == "function" then
-        togglePlayerSpellsFrame()
+        if type(securecall) == "function" then
+            securecall(togglePlayerSpellsFrame)
+        else
+            togglePlayerSpellsFrame()
+        end
         return true
     end
 
     local playerSpellsFrame = _G and _G["PlayerSpellsFrame"]
     if playerSpellsFrame and playerSpellsFrame.Show then
-        playerSpellsFrame:Show()
+        if type(securecall) == "function" then
+            securecall(playerSpellsFrame.Show, playerSpellsFrame)
+        else
+            playerSpellsFrame:Show()
+        end
         return true
     end
 
     local classTalentFrame = _G and _G["ClassTalentFrame"]
     if classTalentFrame and classTalentFrame.Show then
-        classTalentFrame:Show()
+        if type(securecall) == "function" then
+            securecall(classTalentFrame.Show, classTalentFrame)
+        else
+            classTalentFrame:Show()
+        end
         return true
     end
 
     local toggleTalentFrame = _G and _G["ToggleTalentFrame"]
     if type(toggleTalentFrame) == "function" then
-        toggleTalentFrame()
+        if type(securecall) == "function" then
+            securecall(toggleTalentFrame)
+        else
+            toggleTalentFrame()
+        end
         return true
     end
     return false
@@ -1477,13 +1645,19 @@ frame = CreateFrame('Frame', 'fr0z3nUI_AutoOpenFrame')
 function frame:RunScan(isKick)
     if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
     if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
+    RefreshInteractionFlagsFromUI()
     if atBank or atMail or atMerchant or atTrade or atAuction then return end
     if (InCombatLockdown and InCombatLockdown()) then return end
+    if not (C_Container and C_Container.GetContainerNumSlots and C_Container.GetContainerItemID and C_Container.GetContainerItemInfo and C_Container.UseContainerItem) then
+        return
+    end
     if IsLootOpenSafe() then
         -- Loot frame can stick around briefly; retry.
         if RequestScan then RequestScan(0.5) end
         return
     end
+
+    self._lastScanAt = (GetTime and GetTime()) or 0
 
     local now = (GetTime and GetTime()) or 0
     local cd = GetOpenCooldown()
@@ -1620,16 +1794,24 @@ end
 frame:SetScript('OnEvent', function(self, event, ...)
     if event == "PLAYER_LOGIN" then 
         InitSV()
+        EnsureWatchdogTicker()
         ApplyAutoLootSettingOnWorld()
         ApplyNPCNameplatesSettingOnWorld()
+        if UpdateMinimapButtonVisibility then
+            UpdateMinimapButtonVisibility()
+        end
         frame._didOpenGreatVaultThisLogin = false
         frame._gvPending = false
         C_Timer.After(2, CheckTimersOnLogin)
+        if RequestScan then
+            RequestScan(2.5)
+        end
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...
         isInitialLogin = isInitialLogin and true or false
         isReloadingUi = isReloadingUi and true or false
         InitSV()
+        EnsureWatchdogTicker()
         ApplyAutoLootSettingOnWorld()
         ApplyNPCNameplatesSettingOnWorld()
         if frame._didOpenGreatVaultThisLogin == nil then
@@ -1653,8 +1835,8 @@ frame:SetScript('OnEvent', function(self, event, ...)
 
         -- Re-scan after zone/instance transitions and /reload.
         -- Bag events usually cover this, but PLAYER_ENTERING_WORLD is a reliable backstop.
-        if not isInitialLogin then
-            RequestScan(1.0)
+        if RequestScan then
+            RequestScan(isInitialLogin and 2.0 or 1.0)
         end
     elseif event == "LOOT_OPENED" then
         -- Safety net: if something flipped auto-loot off after zoning, re-apply right when loot opens.
@@ -1668,10 +1850,12 @@ frame:SetScript('OnEvent', function(self, event, ...)
         atBank = true
     elseif event == "BANKFRAME_CLOSED" then 
         atBank = false
+        if RequestScan then RequestScan(0.3) end
     elseif event == "MAIL_SHOW" then 
         atMail = true
     elseif event == "MAIL_CLOSED" then 
         atMail = false
+        if RequestScan then RequestScan(0.3) end
     elseif event == "MERCHANT_SHOW" then
         atMerchant = true
         -- Cancel any pending post-close kick.
@@ -1688,18 +1872,18 @@ frame:SetScript('OnEvent', function(self, event, ...)
             if atMerchant then
                 return
             end
-            if frame and frame.RunScan then
-                frame:RunScan()
-            end
+            if RequestScan then RequestScan(0) end
         end)
     elseif event == "TRADE_SHOW" then
         atTrade = true
     elseif event == "TRADE_CLOSED" then
         atTrade = false
+        if RequestScan then RequestScan(0.3) end
     elseif event == "AUCTION_HOUSE_SHOW" then
         atAuction = true
     elseif event == "AUCTION_HOUSE_CLOSED" then
         atAuction = false
+        if RequestScan then RequestScan(0.3) end
     elseif event == "TRAINER_SHOW" then
         InitSV()
         trainerMissingApiWarned = false
@@ -1852,1122 +2036,172 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
 end)
 end
 
--- [ SLASH COMMAND + SIMPLE OPTIONS WINDOW ]
-local function AddItemByID(id, scope)
-    if not id then print("|cff00ccff[FAO]|r Please enter a valid item ID.") return end
-    InitSV()
-    if ns.items and ns.items[id] then
-        print("|cff00ccff[FAO]|r Already in addon database: "..(GetItemNameSafe(id) or id))
-        return
-    end
-    if ns.exclude and ns.exclude[id] then
-        local name = ns.exclude[id][1] or ("ID "..id)
-        local reason = ns.exclude[id][2] or "Excluded"
-        print("|cff00ccff[FAO]|r Excluded: |cffffff00"..name.."|r - "..reason)
-        return
-    end
+-- [ SLASH COMMAND + OPTIONS WINDOW ]
+-- Options UI moved to fr0z3nUI_AutoOpenUI.lua
 
-    -- Guard: avoid adding non-openable items (e.g., gear).
-    local ok, why = IsProbablyOpenableCacheID(id)
-    if ok == nil then
-        print("|cff00ccff[FAO]|r Item data still loading for ID "..id..". Try again in a second.")
-        return
-    end
-    if ok == false then
-        local reason = "Not an openable cache"
-        if why == "equippable" then reason = "This looks equippable (not a cache)" end
-        if why == "no_open_line" then reason = "No 'Right Click to Open' tooltip line" end
-        print("|cff00ccff[FAO]|r Not added: |cffffff00"..(GetItemNameSafe(id) or ("ID "..id)).."|r - "..reason)
-        return
-    end
-    if scope == "acc" then
-        if fr0z3nUI_AutoOpen_Acc[id] then print("|cff00ccff[FAO]|r Already in Account whitelist: "..(GetItemNameSafe(id) or id)) return end
-        fr0z3nUI_AutoOpen_Acc[id] = true
-        if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled then
-            fr0z3nUI_AutoOpen_Settings.disabled[id] = nil
-        end
-    else
-        if fr0z3nUI_AutoOpen_Char[id] then print("|cff00ccff[FAO]|r Already in Character whitelist: "..(GetItemNameSafe(id) or id)) return end
-        fr0z3nUI_AutoOpen_Char[id] = true
-        if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled then
-            fr0z3nUI_AutoOpen_CharSettings.disabled[id] = nil
-        end
-    end
-    local iname = GetItemNameSafe(id) or tostring(id)
-    print("|cff00ccff[FAO]|r Added: |cffffff00"..iname.."|r to "..(scope=="acc" and "Account" or "Character"))
+local function ResetAllSavedVariables()
+    fr0z3nUI_AutoOpen_Acc = {}
+    fr0z3nUI_AutoOpen_Char = {}
+    fr0z3nUI_AutoOpen_Settings = {}
+    fr0z3nUI_AutoOpen_CharSettings = {}
+    fr0z3nUI_AutoOpen_Timers = {}
+    didPruneCustomWhitelists = false
+    InitSV()
 end
 
-local function CreateOptionsWindow()
-    if fr0z3nUI_AutoOpenOptions then return end
-    InitSV()
-    local f = CreateFrame("Frame", "fr0z3nUI_AutoOpenOptions", UIParent, "BackdropTemplate")
-    fr0z3nUI_AutoOpenOptions = f
+-- [ MINIMAP BUTTON ]
+do
+    local minimapButton
 
-    -- Allow closing with Escape.
-    do
-        local special = _G and _G["UISpecialFrames"]
-        if type(special) == "table" then
-            local name = "fr0z3nUI_AutoOpenOptions"
-            local exists = false
-            for i = 1, #special do
-                if special[i] == name then exists = true break end
-            end
-            if not exists and table and table.insert then table.insert(special, name) end
+    local function ClampToMinimap(dx, dy)
+        if not Minimap or not Minimap.GetWidth then
+            return dx, dy
         end
-    end
-    local FRAME_W, FRAME_H = 340, 210
-    f:SetSize(FRAME_W, FRAME_H)
-    f:SetPoint("CENTER")
-    f:SetClampedToScreen(true)
-    f:SetFrameStrata("DIALOG")
-    f:EnableMouse(true)
-    f:SetMovable(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", function(self) if self.StopMovingOrSizing then self:StopMovingOrSizing() end end)
-    f:SetBackdrop({bgFile = "Interface/Tooltips/UI-Tooltip-Background", tile = true, tileSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 }})
-    f:SetBackdropColor(0,0,0,0.7)
 
-    local itemsPanel = CreateFrame("Frame", nil, f)
-    itemsPanel:SetAllPoints()
-    f.itemsPanel = itemsPanel
-
-    local togglesPanel = CreateFrame("Frame", nil, f)
-    togglesPanel:SetAllPoints()
-    togglesPanel:Hide()
-    f.togglesPanel = togglesPanel
-
-    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOPLEFT", 12, -10)
-    title:SetJustifyH("LEFT")
-    title:SetText("|cff00ccff[FAO]|r AutoOpen")
-
-    local panelTemplatesSetNumTabs = _G and _G["PanelTemplates_SetNumTabs"]
-    local panelTemplatesSetTab = _G and _G["PanelTemplates_SetTab"]
-
-    local function SelectTab(tabID)
-        f.activeTab = tabID
-        if f.itemsPanel then f.itemsPanel:SetShown(tabID == 1) end
-        if f.togglesPanel then f.togglesPanel:SetShown(tabID == 2) end
-        if type(panelTemplatesSetTab) == "function" then
-            panelTemplatesSetTab(f, tabID)
+        local radius = (Minimap:GetWidth() / 2) + 10
+        local dist = math.sqrt((dx * dx) + (dy * dy))
+        if dist > radius and dist > 0 then
+            local scale = radius / dist
+            dx = dx * scale
+            dy = dy * scale
         end
-    end
-    f.SelectTab = SelectTab
-
-    local function StyleTab(btn)
-        if not btn then return end
-        btn:SetHeight(22)
-
-        local n = btn.GetNormalTexture and btn:GetNormalTexture() or nil
-        if n and n.SetAlpha then n:SetAlpha(0.65) end
-        local h = btn.GetHighlightTexture and btn:GetHighlightTexture() or nil
-        if h and h.SetAlpha then h:SetAlpha(0.45) end
-        local p = btn.GetPushedTexture and btn:GetPushedTexture() or nil
-        if p and p.SetAlpha then p:SetAlpha(0.75) end
-        local d = btn.GetDisabledTexture and btn:GetDisabledTexture() or nil
-        if d and d.SetAlpha then d:SetAlpha(0.40) end
+        return dx, dy
     end
 
-    local tab1 = CreateFrame("Button", "$parentTab1", f, "PanelTabButtonTemplate")
-    tab1:SetID(1)
-    tab1:SetText("Items")
-    tab1:SetPoint("LEFT", title, "RIGHT", 10, 0)
-    tab1:SetScript("OnClick", function(self) SelectTab(self:GetID()) end)
-    StyleTab(tab1)
-    f.tab1 = tab1
-
-    local tab2 = CreateFrame("Button", "$parentTab2", f, "PanelTabButtonTemplate")
-    tab2:SetID(2)
-    tab2:SetText("Toggles")
-    tab2:SetPoint("LEFT", tab1, "RIGHT", -16, 0)
-    tab2:SetScript("OnClick", function(self) SelectTab(self:GetID()) end)
-    StyleTab(tab2)
-    f.tab2 = tab2
-
-    if type(panelTemplatesSetNumTabs) == "function" then
-        panelTemplatesSetNumTabs(f, 2)
-    end
-    if type(panelTemplatesSetTab) == "function" then
-        panelTemplatesSetTab(f, 1)
-    end
-
-    local function BumpFont(fs, delta)
-        if not (fs and fs.GetFont and fs.SetFont) then return end
-        local fontPath, fontSize, fontFlags = fs:GetFont()
-        if fontPath and fontSize then
-            fs:SetFont(fontPath, fontSize + (delta or 0), fontFlags)
-        end
-    end
-
-    local info = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    info:SetPoint("TOP", f, "TOP", 0, -54)
-    info:SetText("Enter ItemID Below")
-    BumpFont(info, 1)
-
-    local edit = CreateFrame("EditBox", nil, itemsPanel, "InputBoxTemplate")
-    edit:SetSize(175,38)
-    edit:SetPoint("TOP", info, "BOTTOM", 0, -2)
-    edit:SetAutoFocus(false)
-    edit:SetMaxLetters(10)
-    edit:SetTextInsets(6, 6, 0, 0)
-    edit:SetJustifyH("CENTER")
-    if edit.SetJustifyV then edit:SetJustifyV("MIDDLE") end
-    if edit.SetNumeric then edit:SetNumeric(true) end
-    if edit.GetFont and edit.SetFont then
-        local fontPath, _, fontFlags = edit:GetFont()
-        if fontPath then edit:SetFont(fontPath, 16, fontFlags) end
-    end
-    f.edit = edit
-
-    -- Make the input look like a clean field (hide the template frame) + add a placeholder.
-    local function HideEditBoxFrame(box)
-        if not box or not box.GetRegions then return end
-        for i = 1, select("#", box:GetRegions()) do
-            local region = select(i, box:GetRegions())
-            if region and region.Hide and region.GetObjectType and region:GetObjectType() == "Texture" then
-                region:Hide()
-            end
-        end
-    end
-    HideEditBoxFrame(edit)
-
-    local placeholder = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontDisable")
-    placeholder:SetPoint("CENTER", edit, "CENTER", 0, 0)
-    placeholder:SetText("Input Here")
-    placeholder:SetTextColor(1, 1, 1, 0.35)
-    f.inputPlaceholder = placeholder
-
-    local function UpdatePlaceholder()
-        if not f or not f.inputPlaceholder or not f.edit then return end
-        local txt = f.edit:GetText() or ""
-        local hasText = txt ~= ""
-        local focused = f.edit.HasFocus and f.edit:HasFocus() or false
-        f.inputPlaceholder:SetShown((not hasText) and (not focused))
-    end
-    f.UpdateInputPlaceholder = UpdatePlaceholder
-
-    edit:SetScript("OnEditFocusGained", function()
-        if f and f.inputPlaceholder then f.inputPlaceholder:Hide() end
-        if f then
-            -- Some item clicks can steal focus; keep a short-lived capture flag.
-            f._captureLinkUntil = (GetTime and GetTime() or 0) + 2
-        end
-    end)
-    edit:SetScript("OnEditFocusLost", function()
-        UpdatePlaceholder()
-    end)
-
-    local function TrySetItemIDFromLink(text)
-        if not (f and f.edit and type(text) == "string") then
-            return false
-        end
-        local now = GetTime and GetTime() or 0
-        local focused = f.edit.HasFocus and f.edit:HasFocus() or false
-        local capture = (f._captureLinkUntil and now <= f._captureLinkUntil) or false
-        if not (focused or capture) then
-            return false
-        end
-
-        local id = tonumber(text:match("item:(%d+):")) or tonumber(text:match("item:(%d+)"))
-        if not id then
-            return false
-        end
-
-        f.edit:SetText(tostring(id))
-        if f.edit.HighlightText then f.edit:HighlightText() end
-        f._captureLinkUntil = nil
-        return true
-    end
-
-    -- Shift-click support (safe hooks; avoids taint from overriding globals).
-    if not frame._faoHookedInsertLink then
-        frame._faoHookedInsertLink = true
-
-        if type(hooksecurefunc) == "function" and _G and type(rawget(_G, "ChatEdit_InsertLink")) == "function" then
-            hooksecurefunc("ChatEdit_InsertLink", function(text)
-                TrySetItemIDFromLink(text)
-            end)
-        end
-
-        if type(hooksecurefunc) == "function" and _G and type(rawget(_G, "HandleModifiedItemClick")) == "function" then
-            hooksecurefunc("HandleModifiedItemClick", function(link)
-                TrySetItemIDFromLink(link)
-            end)
-        end
-    end
-
-    -- Drag/drop support: pick up an item then drop it on the box.
-    edit:SetScript("OnReceiveDrag", function()
-        if not (GetCursorInfo and ClearCursor) then
-            return
-        end
-        local kind, id = GetCursorInfo()
-        if kind == "item" and id then
-            f.edit:SetText(tostring(id))
-            if f.edit.HighlightText then f.edit:HighlightText() end
-            ClearCursor()
-        end
-    end)
-
-    edit:SetScript("OnMouseUp", function()
-        if not (GetCursorInfo and ClearCursor) then
-            return
-        end
-        local kind, id = GetCursorInfo()
-        if kind == "item" and id then
-            f.edit:SetText(tostring(id))
-            if f.edit.HighlightText then f.edit:HighlightText() end
-            ClearCursor()
-        end
-    end)
-
-    -- Reserve a fixed space for name/reason so buttons never move.
-    local textArea = CreateFrame("Frame", nil, itemsPanel)
-    textArea:SetPoint("TOPLEFT", edit, "BOTTOMLEFT", 0, -2)
-    textArea:SetPoint("TOPRIGHT", edit, "BOTTOMRIGHT", 0, -2)
-    textArea:SetPoint("BOTTOM", itemsPanel, "BOTTOM", 0, 58)
-    if textArea.SetClipsChildren then textArea:SetClipsChildren(true) end
-
-    local nameLabel = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    nameLabel:SetPoint("TOP", textArea, "TOP", 0, 0)
-    nameLabel:SetPoint("LEFT", textArea, "LEFT", 0, 0)
-    nameLabel:SetPoint("RIGHT", textArea, "RIGHT", 0, 0)
-    nameLabel:SetJustifyH("CENTER")
-    nameLabel:SetWordWrap(true)
-    nameLabel:SetText("")
-    BumpFont(nameLabel, 1)
-    f.nameLabel = nameLabel
-
-    local reasonLabel = itemsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    reasonLabel:SetPoint("TOP", nameLabel, "BOTTOM", 0, -2)
-    reasonLabel:SetPoint("LEFT", textArea, "LEFT", 0, 0)
-    reasonLabel:SetPoint("RIGHT", textArea, "RIGHT", 0, 0)
-    reasonLabel:SetJustifyH("CENTER")
-    reasonLabel:SetWordWrap(true)
-    reasonLabel:SetText("")
-    BumpFont(reasonLabel, 1)
-    f.reasonLabel = reasonLabel
-
-    local BTN_W, BTN_H = 125, 22
-    local PAD_X = 10
-    local BTN_GAP = 14
-    local ROW_TOP_Y = 30
-    local ROW_BOTTOM_Y = 10
-    local TOGGLE_ROW_AUTOLOOT_Y = 98
-    local TOGGLE_ROW_TOP_Y = 72
-    local TOGGLE_ROW_BOTTOM_Y = 46
-    local TOGGLE_ROW_CACHE_Y = 20
-
-    local cooldownLabel = togglesPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    cooldownLabel:SetPoint("TOP", togglesPanel, "TOP", 0, -46)
-    cooldownLabel:SetText(string.format("Open Cooldown: %.1fs", GetOpenCooldown()))
-    f.cooldownLabel = cooldownLabel
-
-    local cdSlider = CreateFrame("Slider", nil, togglesPanel, "UISliderTemplate")
-    cdSlider:SetPoint("TOP", cooldownLabel, "BOTTOM", 0, -6)
-    cdSlider:SetSize(FRAME_W - 60, 18)
-    cdSlider:SetMinMaxValues(0, 10)
-    cdSlider:SetValueStep(0.1)
-    if cdSlider.SetObeyStepOnDrag then cdSlider:SetObeyStepOnDrag(true) end
-    f.cdSlider = cdSlider
-
-    local cdLow = togglesPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    cdLow:SetPoint("TOPLEFT", cdSlider, "BOTTOMLEFT", 0, -2)
-    cdLow:SetText("0.0s")
-
-    local cdHigh = togglesPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    cdHigh:SetPoint("TOPRIGHT", cdSlider, "BOTTOMRIGHT", 0, -2)
-    cdHigh:SetText("10.0s")
-
-    local function UpdateCooldownControls()
+    local function SetMinimapButtonPosition()
+        if not minimapButton then return end
+        if not (Minimap and Minimap.GetCenter) then return end
         InitSV()
-        local current = GetOpenCooldown()
-        if f.cdSlider then
-            f.cdSlider._setting = true
-            f.cdSlider:SetValue(current)
-            f.cdSlider._setting = false
+
+        local dx = tonumber(fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.minimapButtonX) or -70
+        local dy = tonumber(fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.minimapButtonY) or -70
+        dx, dy = ClampToMinimap(dx, dy)
+        if fr0z3nUI_AutoOpen_Settings then
+            fr0z3nUI_AutoOpen_Settings.minimapButtonX = dx
+            fr0z3nUI_AutoOpen_Settings.minimapButtonY = dy
         end
-        if f.cooldownLabel then
-            f.cooldownLabel:SetText(string.format("Open Cooldown: %.1fs", current))
-        end
+
+        minimapButton:ClearAllPoints()
+        minimapButton:SetPoint("CENTER", Minimap, "CENTER", dx, dy)
     end
 
-    cdSlider:SetScript("OnValueChanged", function(self, value)
-        if self._setting then return end
+    local function UpdateDragPosition()
+        if not minimapButton then return end
+        if not (Minimap and Minimap.GetCenter and GetCursorPosition) then return end
         InitSV()
-        local rounded = math.floor((tonumber(value) or 0) * 10 + 0.5) / 10
-        local newCd = NormalizeCooldown(rounded)
-        fr0z3nUI_AutoOpen_Settings.cooldown = newCd
 
-        self._setting = true
-        self:SetValue(newCd)
-        self._setting = false
+        local mx, my = Minimap:GetCenter()
+        if not mx or not my then return end
 
-        if f.cooldownLabel then
-            f.cooldownLabel:SetText(string.format("Open Cooldown: %.1fs", newCd))
+        local cx, cy = GetCursorPosition()
+        local scale = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or 1
+        if scale and scale > 0 then
+            cx = cx / scale
+            cy = cy / scale
         end
-    end)
 
-    local ADD_ROW_X = (BTN_W / 2) + (BTN_GAP / 2)
+        local dx = cx - mx
+        local dy = cy - my
+        dx, dy = ClampToMinimap(dx, dy)
 
-    local btnChar = CreateFrame("Button", nil, itemsPanel, "UIPanelButtonTemplate")
-    btnChar:SetSize(BTN_W, BTN_H)
-    btnChar:SetPoint("BOTTOM", itemsPanel, "BOTTOM", -ADD_ROW_X, 28)
-    btnChar:SetText("Character")
-    if btnChar.RegisterForClicks then btnChar:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
-    btnChar:Disable()
-    f.btnChar = btnChar
+        fr0z3nUI_AutoOpen_Settings.minimapButtonX = dx
+        fr0z3nUI_AutoOpen_Settings.minimapButtonY = dy
 
-    local btnAcc = CreateFrame("Button", nil, itemsPanel, "UIPanelButtonTemplate")
-    btnAcc:SetSize(BTN_W, BTN_H)
-    btnAcc:SetPoint("BOTTOM", itemsPanel, "BOTTOM", ADD_ROW_X, 28)
-    btnAcc:SetText("Account")
-    if btnAcc.RegisterForClicks then btnAcc:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
-    btnAcc:Disable()
-    f.btnAcc = btnAcc
-
-    local DoValidate
-
-    local function IsOpenableID(id)
-        if not id then return false end
-        if ns and ns.items and ns.items[id] then return true end
-        if fr0z3nUI_AutoOpen_Acc and fr0z3nUI_AutoOpen_Acc[id] then return true end
-        if fr0z3nUI_AutoOpen_Char and fr0z3nUI_AutoOpen_Char[id] then return true end
-        return false
+        minimapButton:ClearAllPoints()
+        minimapButton:SetPoint("CENTER", Minimap, "CENTER", dx, dy)
     end
 
-    local function SetButtonColor(btn, label, state)
-        if not btn then return end
-        if state == "inactive" then
-            btn:SetText("|cffffff00" .. label .. "|r") -- yellow
-            return
-        end
-        if state == "active" then
-            btn:SetText("|cff00ff00" .. label .. "|r") -- green
-            return
-        end
-        if state == "disabled" then
-            btn:SetText("|cffff9900" .. label .. "|r") -- orange
-            return
-        end
-        btn:SetText(label)
-    end
+    local function CreateMinimapButton()
+        if minimapButton then return minimapButton end
+        if not Minimap then return nil end
 
-    local function SetDynamicTip(btn, getLines)
-        if not (btn and btn.SetScript and getLines) then return end
-        btn:SetScript("OnEnter", function(self)
+        minimapButton = CreateFrame("Button", "fr0z3nUI_AutoOpen_MinimapButton", Minimap)
+        minimapButton:SetSize(32, 32)
+        minimapButton:SetFrameStrata("MEDIUM")
+        minimapButton:SetFrameLevel(8)
+        minimapButton:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+
+        local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
+        icon:SetAllPoints()
+        icon:SetTexture("Interface\\AddOns\\fr0z3nUI_AutoOpen\\Icons\\AutoIcon.tga")
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        minimapButton.icon = icon
+
+        local border = minimapButton:CreateTexture(nil, "OVERLAY")
+        border:SetAllPoints()
+        border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+        minimapButton.border = border
+
+        minimapButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        minimapButton:SetScript("OnClick", function(_, button)
+            if button == "RightButton" then
+                if ToggleFAOOptionsWindow then
+                    ToggleFAOOptionsWindow()
+                end
+                return
+            end
+
+            -- Left-click: open window directly to Home tab (locations)
+            if ns and ns.UI and type(ns.UI.CreateOptionsWindow) == "function" then
+                ns.UI.CreateOptionsWindow()
+            end
+            local f = fr0z3nUI_AutoOpenOptions
+            if not f then return end
+            f.activeTab = 2
+            if f.SelectTab then
+                f.SelectTab(2)
+            end
+            if not f:IsShown() then
+                f:Show()
+            end
+        end)
+
+        minimapButton:RegisterForDrag("LeftButton")
+        minimapButton:SetMovable(true)
+        minimapButton:SetClampedToScreen(true)
+        minimapButton:SetScript("OnDragStart", function(self)
+            self:StartMoving()
+            self:SetScript("OnUpdate", UpdateDragPosition)
+        end)
+        minimapButton:SetScript("OnDragStop", function(self)
+            self:StopMovingOrSizing()
+            self:SetScript("OnUpdate", nil)
+            SetMinimapButtonPosition()
+        end)
+
+        minimapButton:SetScript("OnEnter", function()
             if not GameTooltip then return end
-            local title, l1, l2, l3 = getLines()
-            if not title then return end
-            GameTooltip:SetOwner(self, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("TOP", self, "BOTTOM", 0, -6)
-            GameTooltip:SetText(title)
-            if l1 then GameTooltip:AddLine(l1, 1, 1, 1, true) end
-            if l2 then GameTooltip:AddLine(l2, 1, 1, 1, true) end
-            if l3 then GameTooltip:AddLine(l3, 1, 1, 1, true) end
+            GameTooltip:SetOwner(minimapButton, "ANCHOR_LEFT")
+            GameTooltip:SetText("FAO")
+            GameTooltip:AddLine("Left-click: Home (Locations)", 1, 1, 1, true)
+            GameTooltip:AddLine("Right-click: Toggle FAO window", 1, 1, 1, true)
+            GameTooltip:AddLine("Drag: Move button", 1, 1, 1, true)
             GameTooltip:Show()
         end)
-        btn:SetScript("OnLeave", function()
+        minimapButton:SetScript("OnLeave", function()
             if GameTooltip then GameTooltip:Hide() end
         end)
+
+        SetMinimapButtonPosition()
+        return minimapButton
     end
 
-    local function UpdateScopeButtons(id)
-        InitSV()
-        if not id then
-            if f.btnChar then f.btnChar:Disable() end
-            if f.btnAcc then f.btnAcc:Disable() end
-            return
-        end
-
-        local inDB = (ns and ns.items and ns.items[id]) and true or false
-        local inAcc = (fr0z3nUI_AutoOpen_Acc and fr0z3nUI_AutoOpen_Acc[id]) and true or false
-        local inChar = (fr0z3nUI_AutoOpen_Char and fr0z3nUI_AutoOpen_Char[id]) and true or false
-
-        local accRuleExists = inDB or inAcc
-        local charRuleExists = inDB or inChar
-
-        local isDisabledAcc = (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id]) and true or false
-        local isDisabledChar = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id]) and true or false
-
-        if f.btnAcc then
-            f.btnAcc:Enable()
-            local aState
-            if not accRuleExists then aState = "inactive" else aState = isDisabledAcc and "disabled" or "active" end
-            SetButtonColor(f.btnAcc, "Account", aState)
-            f.btnAcc:SetScript("OnClick", function(_, mouseButton)
-                InitSV()
-                if not accRuleExists then
-                    local id2 = f.validID or tonumber(edit:GetText() or "")
-                    AddItemByID(id2, "acc")
-                    DoValidate()
-                    return
-                end
-
-                if mouseButton == "RightButton" then
-                    if inAcc then
-                        fr0z3nUI_AutoOpen_Acc[id] = nil
-                        if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled then
-                            fr0z3nUI_AutoOpen_Settings.disabled[id] = nil
-                        end
-                        print("|cff00ccff[FAO]|r Removed from Account whitelist: '" .. (GetItemNameSafe(id) or id) .. "'")
-                        DoValidate()
-                        return
-                    end
-                    print("|cff00ccff[FAO]|r Built-in items can't be removed. Left-click to disable instead.")
-                    return
-                end
-
-                local t = fr0z3nUI_AutoOpen_Settings.disabled
-                if t[id] then
-                    t[id] = nil
-                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Account")
-                else
-                    t[id] = true
-                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Account")
-                end
-                UpdateScopeButtons(id)
-            end)
-
-            SetDynamicTip(f.btnAcc, function()
-                local cur = f.validID or tonumber(edit:GetText() or "")
-                if not cur then return "Account", "Enter an ItemID first." end
-
-                if not accRuleExists then
-                    if charRuleExists then
-                        return "Account (Inactive)", "Left-click: add Account whitelist"
-                    end
-                    return "Account (Inactive)", "Left-click: add Account whitelist"
-                end
-                if isDisabledAcc then
-                    return "Account (Disabled)", "Left-click: re-enable auto-open on Account", (inAcc and "Right-click: remove from Account whitelist" or nil)
-                end
-                return "Account (Active)", "Left-click: disable auto-open on Account", (inAcc and "Right-click: remove from Account whitelist" or "(Built-in item)")
-            end)
-        end
-
-        if f.btnChar then
-            f.btnChar:Enable()
-            local cState
-            if not charRuleExists then cState = "inactive" else cState = isDisabledChar and "disabled" or "active" end
-            SetButtonColor(f.btnChar, "Character", cState)
-            f.btnChar:SetScript("OnClick", function(_, mouseButton)
-                InitSV()
-                if not charRuleExists then
-                    local id2 = f.validID or tonumber(edit:GetText() or "")
-                    AddItemByID(id2, "char")
-                    DoValidate()
-                    return
-                end
-
-                if mouseButton == "RightButton" then
-                    if inChar then
-                        fr0z3nUI_AutoOpen_Char[id] = nil
-                        if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled then
-                            fr0z3nUI_AutoOpen_CharSettings.disabled[id] = nil
-                        end
-                        print("|cff00ccff[FAO]|r Removed from Character whitelist: '" .. (GetItemNameSafe(id) or id) .. "'")
-                        DoValidate()
-                        return
-                    end
-                    print("|cff00ccff[FAO]|r Built-in items can't be removed. Left-click to disable instead.")
-                    return
-                end
-
-                local t = fr0z3nUI_AutoOpen_CharSettings.disabled
-                if t[id] then
-                    t[id] = nil
-                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will now open on Character")
-                else
-                    t[id] = true
-                    print("|cff00ccff[FAO]|r '"..(GetItemNameSafe(id) or id).."' will NOT open on Character")
-                end
-                UpdateScopeButtons(id)
-            end)
-
-            SetDynamicTip(f.btnChar, function()
-                local cur = f.validID or tonumber(edit:GetText() or "")
-                if not cur then return "Character", "Enter an ItemID first." end
-
-                if not charRuleExists then
-                    if accRuleExists then
-                        return "Character (Inactive)", "Left-click: add Character whitelist"
-                    end
-                    return "Character (Inactive)", "Left-click: add Character whitelist"
-                end
-                if isDisabledChar then
-                    return "Character (Disabled)", "Left-click: re-enable auto-open on this character", (inChar and "Right-click: remove from Character whitelist" or nil)
-                end
-                return "Character (Active)", "Left-click: disable auto-open on this character", (inChar and "Right-click: remove from Character whitelist" or "(Built-in item)")
-            end)
+    ToggleFAOOptionsWindow = function()
+        if ns and ns.UI and type(ns.UI.ToggleWindow) == "function" then
+            ns.UI.ToggleWindow()
         end
     end
 
-    local function UpdateAutoOpenButton()
+    UpdateMinimapButtonVisibility = function()
         InitSV()
-        local enabled = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false)
-        if f.btnAutoOpen then
-            f.btnAutoOpen:SetText("Auto Open: "..(enabled and "ON" or "OFF"))
+        local on = (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.minimapButton == true)
+        if on then
+            CreateMinimapButton()
+            if minimapButton then minimapButton:Show() end
+        else
+            if minimapButton then minimapButton:Hide() end
         end
     end
-
-    local function UpdateAutoLootButton()
-        InitSV()
-        if f.btnAutoLoot then
-            local mode = GetAutoLootEnforceMode()
-            if mode == "ACC" then
-                f.btnAutoLoot:SetText("Auto Loot: ON ACC")
-            elseif mode == "CHAR" then
-                f.btnAutoLoot:SetText("Auto Loot: ON")
-            else
-                f.btnAutoLoot:SetText("Auto Loot: OFF")
-            end
-        end
-    end
-
-    local function UpdateNPCNameButton()
-        InitSV()
-        if not f.btnNPCName then return end
-
-        local acc = fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
-        if acc == true then
-            f.btnNPCName:SetText("NPC Name: ON ACC")
-        elseif acc == false then
-            f.btnNPCName:SetText("NPC Name: OFF ACC")
-        else
-            local enabled = GetNPCNameplatesSettingEffective()
-            f.btnNPCName:SetText("NPC Name: "..(enabled and "ON" or "OFF"))
-        end
-    end
-
-    local function UpdateGreatVaultButton()
-        InitSV()
-        if f.btnGreatVault then
-            local mode = GetGreatVaultAutoOpenMode()
-            if mode == "ACC" then
-                f.btnGreatVault:SetText("Great Vault: ON ACC")
-            elseif mode == "CHAR" then
-                f.btnGreatVault:SetText("Great Vault: ON")
-            else
-                f.btnGreatVault:SetText("Great Vault: OFF")
-            end
-        end
-    end
-
-    local function UpdateCacheLockButton()
-        InitSV()
-        local enabled = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck ~= false)
-        if f.btnCacheLock then
-            f.btnCacheLock:SetText("Cache: "..(enabled and "ON" or "OFF"))
-        end
-    end
-
-    local function UpdateTalentButtons()
-        InitSV()
-        local uiMode = GetTalentAutoOpenMode()
-        if f.btnTalentsAuto then
-            if uiMode == "ACC" then
-                f.btnTalentsAuto:SetText("Talents: ON ACC")
-            elseif uiMode == "CHAR" then
-                f.btnTalentsAuto:SetText("Talents: ON")
-            else
-                f.btnTalentsAuto:SetText("Talents: OFF")
-            end
-        end
-    end
-
-    local function UpdateTrainerLearnButton()
-        InitSV()
-        if f.btnTrainerLearn then
-            local mode
-            if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.autoLearnTrainerAccount == true then
-                mode = "ACC"
-            elseif fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoLearnTrainer == true then
-                mode = "CHAR"
-            else
-                mode = "OFF"
-            end
-
-            if mode == "ACC" then
-                f.btnTrainerLearn:SetText("Trainer: ON ACC")
-            elseif mode == "CHAR" then
-                f.btnTrainerLearn:SetText("Trainer: ON")
-            else
-                f.btnTrainerLearn:SetText("Trainer: OFF")
-            end
-        end
-    end
-
-    local btnAutoLoot = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnAutoLoot:SetSize(BTN_W, BTN_H)
-    btnAutoLoot:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_AUTOLOOT_Y)
-    btnAutoLoot:SetScript("OnClick", function()
-        InitSV()
-        local mode = GetAutoLootEnforceMode()
-        if mode == "OFF" then
-            fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin = true
-            fr0z3nUI_AutoOpen_Settings.autoLootOnLoginAccount = nil
-            local ok = SetAutoLootDefaultSafe(true)
-            if ok then
-                print("|cff00ccff[FAO]|r Auto Loot on world: |cff00ff00ON|r")
-            else
-                print("|cff00ccff[FAO]|r Auto Loot on world: |cff00ff00ON|r (but failed to set CVar)")
-            end
-        elseif mode == "CHAR" then
-            fr0z3nUI_AutoOpen_Settings.autoLootOnLoginAccount = true
-            local ok = SetAutoLootDefaultSafe(true)
-            if ok then
-                print("|cff00ccff[FAO]|r Auto Loot on world: |cff00ff00ON ACC|r")
-            else
-                print("|cff00ccff[FAO]|r Auto Loot on world: |cff00ff00ON ACC|r (but failed to set CVar)")
-            end
-        else
-            fr0z3nUI_AutoOpen_Settings.autoLootOnLoginAccount = nil
-            fr0z3nUI_AutoOpen_CharSettings.autoLootOnLogin = false
-            print("|cff00ccff[FAO]|r Auto Loot on world: |cffff0000OFF|r")
-        end
-        UpdateAutoLootButton()
-    end)
-    btnAutoLoot:SetScript("OnEnter", function()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("BOTTOM", btnAutoLoot, "TOP", 0, 10)
-            GameTooltip:SetText("Auto Loot")
-            GameTooltip:AddLine("When enabled, forces Auto Loot to be enabled on world entry.", 1, 1, 1, true)
-            GameTooltip:AddLine("(/reload, portals, instances)", 1, 1, 1, true)
-            GameTooltip:AddLine("\nCycles: OFF -> ON -> ON ACC", 1, 1, 1, true)
-            GameTooltip:Show()
-        end
-    end)
-    btnAutoLoot:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    f.btnAutoLoot = btnAutoLoot
-
-    local btnNPCName = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnNPCName:SetSize(BTN_W, BTN_H)
-    btnNPCName:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_AUTOLOOT_Y)
-    btnNPCName:SetScript("OnClick", function()
-        InitSV()
-        local acc = fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
-        if acc == nil then
-            fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
-            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = true
-            print("|cff00ccff[FAO]|r NPC Name: |cff00ff00ON ACC|r")
-        elseif acc == true then
-            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = false
-            print("|cff00ccff[FAO]|r NPC Name: |cffff0000OFF ACC|r")
-        else
-            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = nil
-            fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
-            print("|cff00ccff[FAO]|r NPC Name: |cff00ff00ON|r")
-        end
-        ApplyNPCNameplatesSettingOnWorld()
-        UpdateNPCNameButton()
-    end)
-    btnNPCName:SetScript("OnEnter", function()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("BOTTOM", btnNPCName, "TOP", 0, 10)
-            GameTooltip:SetText("Friendly NPC Nameplates")
-            GameTooltip:AddLine("Cycles: ON (default) -> ON ACC -> OFF ACC", 1, 1, 1, true)
-            local cur = GetFriendlyNPCNameplatesSafe()
-            if cur ~= nil then
-                GameTooltip:AddLine("Current CVar: "..(cur and "ON" or "OFF"), 1, 1, 1, true)
-            end
-            GameTooltip:Show()
-        end
-    end)
-    btnNPCName:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    f.btnNPCName = btnNPCName
-
-    local btnAutoOpen = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnAutoOpen:SetSize(BTN_W, BTN_H)
-    btnAutoOpen:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_TOP_Y)
-    btnAutoOpen:SetScript("OnClick", function()
-        InitSV()
-        local enabled = (fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false)
-        fr0z3nUI_AutoOpen_CharSettings.autoOpen = not enabled
-        if fr0z3nUI_AutoOpen_CharSettings.autoOpen then
-            print("|cff00ccff[FAO]|r Auto Open: |cff00ff00ON|r")
-            C_Timer.After(0.1, function() if frame and frame.RunScan then frame:RunScan() end end)
-        else
-            print("|cff00ccff[FAO]|r Auto Open: |cffff0000OFF|r")
-        end
-        UpdateAutoOpenButton()
-    end)
-    f.btnAutoOpen = btnAutoOpen
-
-    local btnGreatVault = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnGreatVault:SetSize(BTN_W, BTN_H)
-    btnGreatVault:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_TOP_Y)
-    btnGreatVault:SetScript("OnClick", function()
-        InitSV()
-        local mode = GetGreatVaultAutoOpenMode()
-        if mode == "OFF" then
-            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "ON"
-            fr0z3nUI_AutoOpen_Settings.greatVaultAccount = nil
-        elseif mode == "CHAR" then
-            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "ON"
-            fr0z3nUI_AutoOpen_Settings.greatVaultAccount = true
-        else
-            fr0z3nUI_AutoOpen_Settings.greatVaultAccount = nil
-            fr0z3nUI_AutoOpen_CharSettings.greatVaultMode = "OFF"
-        end
-        fr0z3nUI_AutoOpen_CharSettings.greatVaultTouched = true
-
-        local m = GetGreatVaultAutoOpenMode()
-        if m == "OFF" then
-            print("|cff00ccff[FAO]|r AutoOpen Great Vault: |cffff0000OFF|r")
-        elseif m == "ACC" then
-            print("|cff00ccff[FAO]|r AutoOpen Great Vault: |cff00ff00ON ACC|r")
-            if ns and ns.ShowGreatVault then C_Timer.After(0.1, ns.ShowGreatVault) end
-        else
-            print("|cff00ccff[FAO]|r AutoOpen Great Vault: |cff00ff00ON|r")
-            if ns and ns.ShowGreatVault then C_Timer.After(0.1, ns.ShowGreatVault) end
-        end
-        UpdateGreatVaultButton()
-    end)
-    btnGreatVault:SetScript("OnEnter", function()
-        InitSV()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("LEFT", btnGreatVault, "RIGHT", 8, 0)
-            GameTooltip:SetText("Great Vault")
-            GameTooltip:AddLine("Opens automatically on initial login world entry when enabled.", 1, 1, 1, true)
-            GameTooltip:AddLine("Requires max level.", 1, 1, 1, true)
-            GameTooltip:AddLine("\nCycles: OFF -> ON -> ON ACC", 1, 1, 1, true)
-            GameTooltip:Show()
-        end
-    end)
-    btnGreatVault:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    f.btnGreatVault = btnGreatVault
-
-    local btnCacheLock = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnCacheLock:SetSize(BTN_W, BTN_H)
-    btnCacheLock:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_CACHE_Y)
-    btnCacheLock:SetScript("OnClick", function()
-        InitSV()
-        local cur = (fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck ~= false)
-        fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck = not cur
-        print("|cff00ccff[FAO]|r Cache Lock: "..(fr0z3nUI_AutoOpen_CharSettings.cacheLockCheck and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
-        UpdateCacheLockButton()
-    end)
-    btnCacheLock:SetScript("OnEnter", function()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("TOP", btnCacheLock, "BOTTOM", 0, -6)
-            GameTooltip:SetText("Cache Lock")
-            GameTooltip:AddLine("ON: only allow manual adds if the tooltip shows 'Right Click to Open'.", 1, 1, 1, true)
-            GameTooltip:AddLine("OFF: bypass this check (advanced / use with care).", 1, 1, 1, true)
-            GameTooltip:Show()
-        end
-    end)
-    btnCacheLock:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    f.btnCacheLock = btnCacheLock
-
-    local btnTrainerLearn = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnTrainerLearn:SetSize(BTN_W, BTN_H)
-    btnTrainerLearn:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_BOTTOM_Y)
-    btnTrainerLearn:SetScript("OnClick", function()
-        InitSV()
-        local mode
-        if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.autoLearnTrainerAccount == true then
-            mode = "ACC"
-        elseif fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoLearnTrainer == true then
-            mode = "CHAR"
-        else
-            mode = "OFF"
-        end
-
-        if mode == "OFF" then
-            fr0z3nUI_AutoOpen_CharSettings.autoLearnTrainer = true
-            fr0z3nUI_AutoOpen_Settings.autoLearnTrainerAccount = nil
-        elseif mode == "CHAR" then
-            fr0z3nUI_AutoOpen_Settings.autoLearnTrainerAccount = true
-        else
-            fr0z3nUI_AutoOpen_Settings.autoLearnTrainerAccount = nil
-            fr0z3nUI_AutoOpen_CharSettings.autoLearnTrainer = false
-        end
-
-        local newMode = GetTrainerAutoLearnMode()
-        if newMode == "ACC" then
-            print("|cff00ccff[FAO]|r Trainer auto-learn: |cff00ff00ON ACC|r")
-        elseif newMode == "CHAR" then
-            print("|cff00ccff[FAO]|r Trainer auto-learn: |cff00ff00ON|r")
-        else
-            print("|cff00ccff[FAO]|r Trainer auto-learn: |cffff0000OFF|r")
-        end
-        UpdateTrainerLearnButton()
-    end)
-    btnTrainerLearn:SetScript("OnEnter", function()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("LEFT", btnTrainerLearn, "RIGHT", 8, 0)
-            GameTooltip:SetText("Profession Trainer Auto-Learn")
-            GameTooltip:AddLine("When enabled, automatically learns all available trainer recipes when you open a trainer.", 1, 1, 1, true)
-            GameTooltip:AddLine("(Works with the Trainer UI; skips if unavailable.)", 1, 1, 1, true)
-            GameTooltip:AddLine("\nCycles: OFF -> ON -> ON ACC", 1, 1, 1, true)
-            GameTooltip:Show()
-        end
-    end)
-    btnTrainerLearn:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    f.btnTrainerLearn = btnTrainerLearn
-
-    local btnReset = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnReset:SetSize(BTN_W, BTN_H)
-    btnReset:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -BTN_GAP/2, TOGGLE_ROW_CACHE_Y)
-    btnReset:SetText("Reset SV")
-    btnReset:SetScript("OnClick", function()
-        if not (IsShiftKeyDown and IsShiftKeyDown()) then
-            print("|cff00ccff[FAO]|r Hold |cffffff00SHIFT|r and click to reset all saved variables.")
-            return
-        end
-
-        fr0z3nUI_AutoOpen_Acc = {}
-        fr0z3nUI_AutoOpen_Char = {}
-        fr0z3nUI_AutoOpen_Settings = {}
-        fr0z3nUI_AutoOpen_CharSettings = {}
-        fr0z3nUI_AutoOpen_Timers = {}
-        didPruneCustomWhitelists = false
-
-        InitSV()
-
-        if f.edit then f.edit:SetText("") end
-        if f.nameLabel then f.nameLabel:SetText("") end
-        if f.reasonLabel then f.reasonLabel:SetText("") end
-        f.validID = nil
-        if f.btnChar then f.btnChar:Disable() end
-        if f.btnAcc then f.btnAcc:Disable() end
-
-        UpdateAutoOpenButton()
-        UpdateAutoLootButton()
-        UpdateNPCNameButton()
-        UpdateGreatVaultButton()
-        UpdateCacheLockButton()
-        UpdateTalentButtons()
-        UpdateTrainerLearnButton()
-        UpdateCooldownControls()
-        if f.UpdateInputPlaceholder then f.UpdateInputPlaceholder() end
-
-        print("|cff00ccff[FAO]|r SavedVariables reset. (Optional: /reload)")
-    end)
-    btnReset:SetScript("OnEnter", function()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("TOP", btnReset, "BOTTOM", 0, -6)
-            GameTooltip:SetText("Reset SavedVariables")
-            GameTooltip:AddLine("Resets: whitelists, per-char settings, account settings, timers.", 1, 1, 1, true)
-            GameTooltip:AddLine("Hold SHIFT and click to confirm.", 1, 1, 1, true)
-            GameTooltip:Show()
-        end
-    end)
-    btnReset:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-
-    local btnTalentsAuto = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnTalentsAuto:SetSize(BTN_W, BTN_H)
-    btnTalentsAuto:SetPoint("BOTTOMLEFT", f, "BOTTOM", BTN_GAP/2, TOGGLE_ROW_BOTTOM_Y)
-    btnTalentsAuto:SetScript("OnClick", function()
-        InitSV()
-        local mode = GetTalentAutoOpenMode()
-        if mode == "OFF" then
-            fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen = true
-            fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = nil
-            print("|cff00ccff[FAO]|r Talents: ON (Character)")
-        elseif mode == "CHAR" then
-            fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = true
-            print("|cff00ccff[FAO]|r Talents: ON (Account)")
-        else
-            -- Leaving account override: clear it and revert back to character OFF.
-            fr0z3nUI_AutoOpen_Settings.talentAutoOpenAccount = nil
-            fr0z3nUI_AutoOpen_CharSettings.talentAutoOpen = false
-            print("|cff00ccff[FAO]|r Talents: OFF")
-        end
-        UpdateTalentButtons()
-    end)
-    btnTalentsAuto:SetScript("OnEnter", function()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("LEFT", btnTalentsAuto, "RIGHT", 8, 0)
-            GameTooltip:SetText("Talents")
-            GameTooltip:AddLine("When enabled, FAO checks for unspent talent points and can open the talents UI (out of combat).", 1, 1, 1, true)
-            GameTooltip:AddLine("Trigger: WORLD (reload + portals/instances)", 1, 1, 1, true)
-            GameTooltip:Show()
-        end
-    end)
-    btnTalentsAuto:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    f.btnTalentsAuto = btnTalentsAuto
-
-    UpdateTrainerLearnButton()
-
-    -- debounced validation function
-    DoValidate = function()
-        local text = (edit:GetText() or "")
-        if text == "" then
-            if f.nameLabel then f.nameLabel:SetText("") end
-            if f.reasonLabel then f.reasonLabel:SetText("") end
-            f.validID = nil
-            if f.btnChar then f.btnChar:Disable() end
-            if f.btnAcc then f.btnAcc:Disable() end
-            return
-        end
-        local id = tonumber(text)
-        if not id then
-            if f.nameLabel then f.nameLabel:SetText("|cffff0000Invalid ID|r") end
-            if f.reasonLabel then f.reasonLabel:SetText("") end
-            f.validID = nil
-            if f.btnChar then f.btnChar:Disable() end
-            if f.btnAcc then f.btnAcc:Disable() end
-            return
-        end
-
-        local req, lockedName = GetRequiredLevelForID(id)
-        if req and UnitLevel and UnitLevel("player") < req then
-            local displayName = lockedName or GetItemNameSafe(id) or ("ID "..id)
-            if f.nameLabel then f.nameLabel:SetText("|cffffff00"..displayName.."|r") end
-            if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Requires level "..req.." (will not auto-open yet)|r") end
-            f.validID = id
-            UpdateScopeButtons(id)
-            return
-        end
-
-        local iname = GetItemNameSafe(id)
-        if ns.exclude and ns.exclude[id] then
-            local exName = ns.exclude[id][1] or iname or ("ID "..id)
-            local reason = ns.exclude[id][2] or "Excluded"
-            if f.nameLabel then f.nameLabel:SetText("|cffffff00"..exName.."|r") end
-            if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Excluded: "..reason.."|r") end
-            f.validID = nil
-            if f.btnChar then f.btnChar:Disable() end
-            if f.btnAcc then f.btnAcc:Disable() end
-            return
-        end
-
-        if iname then
-            if f.nameLabel then f.nameLabel:SetText("|cffffff00"..iname.."|r") end
-
-            local alreadyWhitelisted = IsOpenableID(id)
-            local ok, why = IsProbablyOpenableCacheID(id)
-
-            if ok == nil and not alreadyWhitelisted then
-                if f.reasonLabel then f.reasonLabel:SetText("|cffaaaaaaLoading item data...|r") end
-                f.validID = nil
-                if f.btnChar then f.btnChar:Disable() end
-                if f.btnAcc then f.btnAcc:Disable() end
-                return
-            end
-
-            if ok == false and not alreadyWhitelisted then
-                local reason = "Not an openable cache"
-                if why == "equippable" then reason = "This looks equippable (not a cache)" end
-                if why == "no_open_line" then reason = "No 'Right Click to Open' tooltip line" end
-                if f.reasonLabel then f.reasonLabel:SetText("|cffff9900"..reason.."|r") end
-                f.validID = nil
-                if f.btnChar then f.btnChar:Disable() end
-                if f.btnAcc then f.btnAcc:Disable() end
-                return
-            end
-
-            if ok == false and alreadyWhitelisted then
-                if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Warning: this does not look openable (still allowing disable/re-enable).|r") end
-            else
-                if f.reasonLabel then f.reasonLabel:SetText("") end
-            end
-
-            f.validID = id
-            UpdateScopeButtons(id)
-        else
-            if f.nameLabel then f.nameLabel:SetText("|cffff0000Item not found (may need cache)|r") end
-            if f.reasonLabel then f.reasonLabel:SetText("") end
-            f.validID = nil
-            if f.btnChar then f.btnChar:Disable() end
-            if f.btnAcc then f.btnAcc:Disable() end
-        end
-    end
-
-    edit:SetScript("OnTextChanged", function(self, userInput)
-        local txt = self:GetText() or ""
-
-        if userInput then
-            -- Some clients still allow non-digits even with SetNumeric(true); sanitize safely.
-            local cleaned = txt:gsub("%D", "")
-            if txt ~= cleaned then
-                self:SetText(cleaned)
-                if self.SetCursorPosition then self:SetCursorPosition(#cleaned) end
-                txt = cleaned
-            end
-        end
-
-        -- Clear previous validation when text changes.
-        if fr0z3nUI_AutoOpenOptions then
-            if fr0z3nUI_AutoOpenOptions.UpdateInputPlaceholder then
-                fr0z3nUI_AutoOpenOptions.UpdateInputPlaceholder()
-            end
-
-            fr0z3nUI_AutoOpenOptions.validID = nil
-            if fr0z3nUI_AutoOpenOptions.nameLabel then fr0z3nUI_AutoOpenOptions.nameLabel:SetText("") end
-            if fr0z3nUI_AutoOpenOptions.reasonLabel then fr0z3nUI_AutoOpenOptions.reasonLabel:SetText("") end
-            if fr0z3nUI_AutoOpenOptions.btnChar then fr0z3nUI_AutoOpenOptions.btnChar:Disable() end
-            if fr0z3nUI_AutoOpenOptions.btnAcc then fr0z3nUI_AutoOpenOptions.btnAcc:Disable() end
-
-            -- Only debounce validate on real user edits (not programmatic SetText).
-            if userInput then
-                if fr0z3nUI_AutoOpenOptions._validateTimer then fr0z3nUI_AutoOpenOptions._validateTimer:Cancel() end
-                fr0z3nUI_AutoOpenOptions._validateTimer = C_Timer.NewTimer(0.7, DoValidate)
-            end
-        end
-    end)
-
-    local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -6, -6)
-
-    f:SetScript("OnShow", function()
-        InitSV()
-        UpdateAutoOpenButton()
-        UpdateAutoLootButton()
-        UpdateNPCNameButton()
-        UpdateGreatVaultButton()
-        UpdateCacheLockButton()
-        UpdateTalentButtons()
-        UpdateCooldownControls()
-
-        if f.UpdateInputPlaceholder then f.UpdateInputPlaceholder() end
-
-        if f.activeTab == nil then f.activeTab = 1 end
-        SelectTab(f.activeTab)
-    end)
-
-    UpdateAutoOpenButton()
-    UpdateAutoLootButton()
-    UpdateNPCNameButton()
-    UpdateGreatVaultButton()
-    UpdateCacheLockButton()
-    UpdateTalentButtons()
-    UpdateTrainerLearnButton()
-    UpdateCooldownControls()
-    SelectTab(1)
-    f:Hide()
 end
 
 -- /fao opens the GUI (no /fao add)
@@ -2979,6 +2213,8 @@ SlashCmdList["FAO"] = function(msg)
     local cmd, arg = text:match("^(%S+)%s*(%S*)")
     cmd = cmd and cmd:lower() or nil
     arg = arg and arg:lower() or ""
+    local rest = text:match("^%S+%s+(.+)$") or ""
+    local rest2 = text:match("^%S+%s+%S+%s+(.+)$") or ""
 
     if text == "?" or cmd == "?" or cmd == "help" then
         print("|cff00ccff[FAO]|r Commands:")
@@ -2994,6 +2230,13 @@ SlashCmdList["FAO"] = function(msg)
         print("|cff00ccff[FAO]|r /fao talents       - talent reminder help")
         print("|cff00ccff[FAO]|r /fao debug talents - toggle talent debug output")
         print("|cff00ccff[FAO]|r /fao debug gv      - toggle Great Vault debug output")
+        return
+    end
+
+    -- Commands moved to GameOption (/fgo). Keep a small guard so old macros don't
+    -- accidentally open this window.
+    if cmd == "hm" or cmd == "hs" or cmd == "hearth" or cmd == "script" or cmd == "scripterrors" then
+        print("|cff00ccff[FAO]|r Moved: use /fgo " .. tostring(cmd) .. " ...")
         return
     end
 
@@ -3341,28 +2584,28 @@ SlashCmdList["FAO"] = function(msg)
     end
 
     -- Default behavior: open/toggle GUI and allow pasting an itemID
-    CreateOptionsWindow()
-
-    local f = fr0z3nUI_AutoOpenOptions
-    if not f then return end
-
-    local idText = text:match("(%d+)")
-
-    if not f:IsShown() then
-        f:Show()
-    else
-        -- If user typed an ID while window is open, update; otherwise toggle.
-        if not idText then
-            f:Hide()
-            return
-        end
-    end
-
-    if idText and f.edit then
-        f.edit:SetText(idText)
-        if f.edit.SetCursorPosition then f.edit:SetCursorPosition(#idText) end
-        if f.edit.SetFocus then f.edit:SetFocus() end
-    elseif f.edit and f.edit.SetFocus then
-        f.edit:SetFocus()
+    if ns and ns.UI and type(ns.UI.ToggleWindow) == "function" then
+        ns.UI.ToggleWindow(text)
     end
 end
+
+-- Expose a small, explicit API for UI modules.
+ns.API = ns.API or {}
+ns.API.engineFrame = frame
+ns.API.InitSV = InitSV
+ns.API.NormalizeCooldown = NormalizeCooldown
+ns.API.GetOpenCooldown = GetOpenCooldown
+ns.API.ResetAllSavedVariables = ResetAllSavedVariables
+ns.API.GetItemNameSafe = GetItemNameSafe
+ns.API.GetRequiredLevelForID = GetRequiredLevelForID
+ns.API.IsProbablyOpenableCacheID = IsProbablyOpenableCacheID
+ns.API.SetAutoLootDefaultSafe = SetAutoLootDefaultSafe
+ns.API.GetAutoLootEnforceMode = GetAutoLootEnforceMode
+ns.API.ApplyNPCNameplatesSettingOnWorld = ApplyNPCNameplatesSettingOnWorld
+ns.API.GetFriendlyNPCNameplatesSafe = GetFriendlyNPCNameplatesSafe
+ns.API.GetNPCNameplatesSettingEffective = GetNPCNameplatesSettingEffective
+ns.API.GetGreatVaultAutoOpenMode = GetGreatVaultAutoOpenMode
+ns.API.ShowGreatVault = ns and ns.ShowGreatVault or nil
+ns.API.GetTalentAutoOpenMode = GetTalentAutoOpenMode
+ns.API.GetTrainerAutoLearnMode = GetTrainerAutoLearnMode
+ns.API.UpdateMinimapButtonVisibility = UpdateMinimapButtonVisibility

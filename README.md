@@ -45,3 +45,10 @@ Automatically opens whitelisted containers (bags/caches/lockboxes, etc.) based o
 ## Notes
 - Respects common safety guards (combat lockdown, loot window open, banking/mail/merchant contexts, etc.).
 - Database files load first (per-expansion lists), then the scan engine in `fr0z3nUI_AutoOpen.lua`.
+
+
+
+
+
+
+

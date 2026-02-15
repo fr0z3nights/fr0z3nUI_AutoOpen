@@ -9,22 +9,34 @@
 # IconTexture: Interface\AddOns\fr0z3nUI_AutoOpen\Icons\AutoIcon.tga
 
 # Database Modules
-fr0z3nUI_AutoOpen01.lua
-fr0z3nUI_AutoOpen02.lua
-fr0z3nUI_AutoOpen03.lua
-fr0z3nUI_AutoOpen04.lua
-fr0z3nUI_AutoOpen05.lua
-fr0z3nUI_AutoOpen06.lua
-fr0z3nUI_AutoOpen07.lua
-fr0z3nUI_AutoOpen08.lua
-fr0z3nUI_AutoOpen09.lua
-fr0z3nUI_AutoOpen10.lua
-fr0z3nUI_AutoOpen11.lua
-fr0z3nUI_AutoOpen12.lua
-fr0z3nUI_AutoOpenEV.lua
-fr0z3nUI_AutoOpenLV.lua
-fr0z3nUI_AutoOpenTR.lua
-fr0z3nUI_AutoOpenXX.lua
+fr0z3nUI_AutoOpenXP01.lua
+fr0z3nUI_AutoOpenXP02.lua
+fr0z3nUI_AutoOpenXP03.lua
+fr0z3nUI_AutoOpenXP04.lua
+fr0z3nUI_AutoOpenXP05.lua
+fr0z3nUI_AutoOpenXP06.lua
+fr0z3nUI_AutoOpenXP07.lua
+fr0z3nUI_AutoOpenXP08.lua
+fr0z3nUI_AutoOpenXP09.lua
+fr0z3nUI_AutoOpenXP10.lua
+fr0z3nUI_AutoOpenXP11.lua
+fr0z3nUI_AutoOpenXP12.lua
+fr0z3nUI_AutoOpenXPEV.lua
+fr0z3nUI_AutoOpenXPLV.lua
+fr0z3nUI_AutoOpenXPTR.lua
+fr0z3nUI_AutoOpenXPXX.lua
 
 # Engine logic
 fr0z3nUI_AutoOpen.lua
+
+# Options: Toggles tab
+fr0z3nUI_AutoOpenToggles.lua
+
+# Options window (UI)
+fr0z3nUI_AutoOpenUI.lua
+
+# Optional modules
+fr0z3nUI_AutoOpenHome.lua
+fr0z3nUI_AutoOpenHomeUI.lua
+fr0z3nUI_AutoOpenMacros.lua
+fr0z3nUI_AutoOpenMacrosUI.lua
