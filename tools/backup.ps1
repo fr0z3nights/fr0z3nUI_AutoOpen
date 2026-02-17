@@ -34,7 +34,7 @@ function Copy-RelativeFile {
   )
 
   $relative = Resolve-Path -LiteralPath $AbsolutePath | ForEach-Object {
-    $_.Path.Substring($repoRoot.Length).TrimStart('\\','/')
+    $_.Path.Substring($repoRoot.Length).TrimStart('\','/')
   }
 
   $destPath = Join-Path $backupDir $relative
