@@ -101,3 +101,4 @@ ns.items[166292] = "Zandalari Empire Supplies"
 ns.items[166290] = "Voldunai Supplies"
 ns.items[166282] = "Talanji's Expedition Supplies"
 ns.items[166245] = "Tortollan Seekers Supplies"
+

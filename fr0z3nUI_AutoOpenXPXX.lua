@@ -57,7 +57,6 @@ ns.exclude[119000] = { "Highmaul Lockbox", "Locked - Requires Key" }
 ns.exclude[118697] = { "Big Bag of Pet Supplies", "Does Not Auto Open" }
 ns.exclude[118193] = { "Mysterious Shining Lockbox", "Locked - Requires Key" }
 ns.exclude[106895] = { "Iron-Bound Junkbox", "Locked (Rogue Pick)" }
-
 -- [ Expansion 05: Mists of Pandaria - Exclusions ]
 ns.exclude[ 88567] = { "Ghost Iron Lockbox", "Locked - Requires Key" }
 ns.exclude[ 88165] = { "Vine-Cracked Junkbox", "Locked - Requires Rogue Pick" }

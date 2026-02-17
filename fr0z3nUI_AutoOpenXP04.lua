@@ -31,3 +31,4 @@ ns.items[ 61387] = "Hidden Stash"
 ns.items[ 60681] = "Cannary's Cache"
 ns.items[ 57540] = "Coldridge Mountaineer's Pouch"
 ns.items[ 54536] = "Satchel of Chilled Goods"
+

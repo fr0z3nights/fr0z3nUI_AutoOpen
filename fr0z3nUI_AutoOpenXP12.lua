@@ -1,18 +1,76 @@
 local _, ns = ...
 ns.items = ns.items or {}
 
--- Midnight (Expansion 12.0) Containers
--- Pre-Patch Event: Twilight Ascension
-ns.items[254101] = "Ascension Arrestor's Cache" -- Catch-up gear container
-ns.items[254105] = "Twilight Cultist's Supply Crate" -- Event currency and consumables
-ns.items[254110] = "Weathered Twilight Footlocker" -- Random event loot
-
--- Early Midnight / Quel'Thalas Loot
-ns.items[258001] = "Sunwell-Infused Satchel" -- General world loot container
-ns.items[258050] = "Amani War-Spoils" -- Zul'Aman themed chest
-ns.items[258120] = "Void-Touched Lockbox" -- High-level world container
-ns.items[259005] = "Haranir Roots-Tender Box" -- Harandar zone container
-
--- Delve & Activity Rewards (Season 1)
-ns.items[261010] = "Valeera's Shadow-Stash" -- Companion reward bag
+ns.items[265780] = "Amani-Bound Coffer" -- Rare spawn chest in the Amani forest regions 
+ns.items[264500] = "Reliquary Storage Crate" -- Exploration-themed container
+ns.items[263012] = "Thalassian Chest" -- Common world container found in Eversong Woods
+ns.items[263010] = "Overflowing Abundant Satchel" -- Reward for high-threshold event completion. 
+ns.items[263000] = "Pinnacle Cache" -- Weekly world event reward.
+ns.items[262184] = "Gemmed Elven Chest" -- Housing-specific world container
+ns.items[262007] = "Miner's Void-Cracked Crate" -- Mining world treasure. 
+ns.items[262006] = "Herbalist’s Root-Bound Satchel" -- Herbalism world treasure.
+ns.items[262005] = "Ancient Arcanist’s Scrollcase" -- Inscription world treasure.
+ns.items[262004] = "Sun-Bleached Tanning Rack" -- Leatherworking world treasure.
+ns.items[262003] = "Void-Tainted Mortar" -- Alchemy world treasure.
+ns.items[262002] = "Weathered Explorer’s Kit" -- Engineering world treasure.
+ns.items[262001] = "Forgotten Jewel-Studded Case" -- Jewelcrafting world treasure.
 ns.items[261500] = "Voidspire Fragment Crate" -- Raid/Dungeon-related reward
+ns.items[261050] = "Void-Slicked Strongbox" -- High-end world loot from Ghostlands rares. 
+ns.items[261040] = "Lost Voidstorm Satchel" -- Rare world treasure containing mining materials
+ns.items[261010] = "Valeera's Shadow-Stash" -- Companion reward bag
+ns.items[260215] = "Ancient Haranir Urn" -- Ritual-themed container in the Harandar forest.
+ns.items[260112] = "Honored Warrior's Cache" -- Treasure found in Zul'Aman
+ns.items[260100] = "Sun-Blessed Trunk" -- Light-corrupted area treasure in Quel'Danas.
+ns.items[260020] = "Reliquary Storage Crate" -- Exploration-themed container found in world outposts.
+ns.items[260007] = "Miner's Void-Cracked Crate"
+ns.items[260006] = "Herbalist’s Root-Bound Satchel"
+ns.items[260005] = "Ancient Arcanist’s Scrollcase"
+ns.items[260004] = "Sun-Bleached Tanning Rack"
+ns.items[260003] = "Void-Tainted Mortar"
+ns.items[260002] = "Weathered Explorer’s Kit"
+ns.items[260001] = "Forgotten Jewel-Studded Case"
+ns.items[259510] = "Glowing Haranir Seed-Pod" -- Interactive zone container (Harandar)
+ns.items[259505] = "Heavy Amani-Bound Coffer" -- Rare high-capacity forest chest
+ns.items[259500] = "Large Thalassian Trunk" -- Rare high-capacity world chest
+ns.items[259203] = "Bag of Cracked Orebits"
+ns.items[259202] = "Pouch of Sprouted Clippings"
+ns.items[259201] = "Pouch of Mystic Grindings"
+ns.items[259200] = "Bag of Wild Skinnings"
+ns.items[259150] = "Amani-Bound Coffer" -- Rare spawn forest chest in Amani territory.
+ns.items[259130] = "Miner's Void-Cracked Crate" -- Mining world trea
+ns.items[259125] = "Herbalist’s Root-Bound Satchel" -- Herbalism world treasure
+ns.items[259120] = "Ancient Arcanist’s Scrollcase" -- Inscription one-time treasure
+ns.items[259115] = "Sun-Bleached Tanning Rack" -- Leatherworking one-time treasure
+ns.items[259110] = "Void-Tainted Mortar" -- Alchemy one-time treasure
+ns.items[259105] = "Weathered Explorer’s Kit" -- Engineering one-time treasure
+ns.items[259101] = "Forgotten Jewel-Studded Case" -- Jewelcrafting one-time treasure
+ns.items[259100] = "Harandar Seasonings Crate" -- Cooking-specific material container
+ns.items[259012] = "Sun-Blessed Pinnacle Cache"
+ns.items[259011] = "Victorious Stormarion Pinnacle Cache"
+ns.items[259010] = "Wriggling Pinnacle Cache"
+ns.items[259005] = "Haranir Roots-Tender Box" -- Harandar zone container
+ns.items[258990] = "Void-Slicked Strongbox" -- High-end Ghostlands loot
+ns.items[258810] = "Ancient Haranir Urn" -- Harandar zone ritual object
+ns.items[258700] = "Sun-Blessed Trunk" -- Light-corrupted area container
+ns.items[258615] = "Reliquary Storage Crate" -- Exploration treasure
+ns.items[258520] = "Gemmed Elven Chest" -- Silvermoon-themed housing container
+ns.items[258430] = "Shattered Sun Offensive Requisition" -- Reintroduced faction-themed cache
+ns.items[258420] = "Void-Purged Reliquary" -- Campaign quest reward
+ns.items[258415] = "Zul'Aman Tribute Chest" -- Challenge-based reward container
+ns.items[258410] = "Thalassian Emissary's Footlocker" -- High-tier reputation reward
+ns.items[258400] = "Amani-Bound Coffer" -- Amani forest rare chest
+ns.items[258305] = "Thalassian Chest" -- Eversong Woods common container
+ns.items[258210] = "Lost Voidstorm Satchel" -- Rare Voidstorm treasure
+ns.items[258150] = "Honored Warrior's Cache" -- Zul'Aman treasure
+ns.items[258120] = "Void-Touched Lockbox" -- High-level world container
+ns.items[258075] = "Honored Warrior's Cache" -- Treasure chest found within Zul'Aman.
+ns.items[258050] = "Amani War-Spoils" -- Zul'Aman themed chest
+ns.items[258001] = "Sunwell-Infused Satchel" -- General world loot container
+ns.items[254110] = "Weathered Twilight Footlocker" -- Random event loot
+ns.items[254105] = "Twilight Cultist's Supply Crate" -- Event currency and consumables
+ns.items[254101] = "Ascension Arrestor's Cache" -- Catch-up gear container
+ns.items[250975] = "Hellcaller Chest" -- from OpenableBeGone
+ns.items[225100] = "Overflowing Abundant Satchel" -- High-threshold event reward
+ns.items[224784] = "Pinnacle Cache" -- Weekly world event reward
+
+-- [ Imported from Open-Sesame/OpenableBeGone on 2026-02-18 ]
