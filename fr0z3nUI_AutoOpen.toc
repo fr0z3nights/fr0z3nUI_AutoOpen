@@ -36,7 +36,4 @@ fr0z3nUI_AutoOpenToggles.lua
 fr0z3nUI_AutoOpenUI.lua
 
 # Optional modules
-fr0z3nUI_AutoOpenHome.lua
-fr0z3nUI_AutoOpenHomeUI.lua
-fr0z3nUI_AutoOpenMacros.lua
-fr0z3nUI_AutoOpenMacrosUI.lua
+# NOTE: Home/Macros were moved into GameOptions (/fgo). AutoOpen should not load them.

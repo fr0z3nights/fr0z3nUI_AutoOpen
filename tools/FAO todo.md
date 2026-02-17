@@ -17,13 +17,13 @@
 +       - nove it a bit closer to the : of the text
 +       - center the text and input box together on the tab, not just the input box
 
-# Home Tab
+# (Removed) Home Tab (moved to FGO)
 
 +   - 
 +   - 
 +   - 
 
-# Macros Tab
+# (Removed) Macros Tab (moved to FGO)
 
 +   + Revert the change you made to the ACC/CHAR button it is not meant to look like that, move it down also
 +   + the Hearth and Zone text display becomes a single line "Hearth, Zone" no titles
@@ -54,19 +54,7 @@
 +       - 
 +       - 
 
-+    + fr0z3nUI_AutoOpenHome.lua (Home TAB & Conetens)
-+    + fr0z3nUI_AutoOpenHomeUI.lua (Home TAB & Conetens)
-
-+       - keep when empty after split below I have plans for it
-+       - 
-+       - 
-
-+    + fr0z3nUI_AutoOpenMacros.lua (Macros logic/helpers)
-+    + fr0z3nUI_AutoOpenMacrosUI.lua (Macros tab UI)
-
-+       - Keep macros-only code in these files (housing is in Home files)
-+       - 
-+       - 
++    + (Removed) Home/Macros files (moved to FGO)
 
 +   + fr0z3nUI_AutoOpenXP--.lua (AutoOpen Item Database)
     
@@ -80,7 +68,7 @@
 ```
 ## REMINDER FOR USER ONLY BELOW THIS LINE DO NOT READ BEYOND THIS POINT
 
-- Macro simplification (FAO Macros)
+- (Removed) Macro simplification (moved to FGO)
 
 
 

@@ -2141,7 +2141,7 @@ do
                 return
             end
 
-            -- Left-click: open window directly to Home tab (locations)
+            -- Left-click: open window directly to Toggles tab
             if ns and ns.UI and type(ns.UI.CreateOptionsWindow) == "function" then
                 ns.UI.CreateOptionsWindow()
             end
@@ -2173,7 +2173,7 @@ do
             if not GameTooltip then return end
             GameTooltip:SetOwner(minimapButton, "ANCHOR_LEFT")
             GameTooltip:SetText("FAO")
-            GameTooltip:AddLine("Left-click: Home (Locations)", 1, 1, 1, true)
+            GameTooltip:AddLine("Left-click: Toggles", 1, 1, 1, true)
             GameTooltip:AddLine("Right-click: Toggle FAO window", 1, 1, 1, true)
             GameTooltip:AddLine("Drag: Move button", 1, 1, 1, true)
             GameTooltip:Show()
@@ -2230,13 +2230,6 @@ SlashCmdList["FAO"] = function(msg)
         print("|cff00ccff[FAO]|r /fao talents       - talent reminder help")
         print("|cff00ccff[FAO]|r /fao debug talents - toggle talent debug output")
         print("|cff00ccff[FAO]|r /fao debug gv      - toggle Great Vault debug output")
-        return
-    end
-
-    -- Commands moved to GameOption (/fgo). Keep a small guard so old macros don't
-    -- accidentally open this window.
-    if cmd == "hm" or cmd == "hs" or cmd == "hearth" or cmd == "script" or cmd == "scripterrors" then
-        print("|cff00ccff[FAO]|r Moved: use /fgo " .. tostring(cmd) .. " ...")
         return
     end
 
