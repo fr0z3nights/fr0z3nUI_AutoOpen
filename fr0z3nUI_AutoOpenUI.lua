@@ -10,6 +10,7 @@ local InitSV = api.InitSV
 local NormalizeCooldown = api.NormalizeCooldown
 local GetOpenCooldown = api.GetOpenCooldown
 local ResetAllSavedVariables = api.ResetAllSavedVariables
+local ResetAccFailStreak = api.ResetAccFailStreak
 
 local GetItemNameSafe = api.GetItemNameSafe
 local GetRequiredLevelForID = api.GetRequiredLevelForID
@@ -65,6 +66,9 @@ local function AddItemByID(id, scope)
         fr0z3nUI_AutoOpen_Acc[id] = true
         if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled then
             fr0z3nUI_AutoOpen_Settings.disabled[id] = nil
+        end
+        if type(ResetAccFailStreak) == "function" then
+            ResetAccFailStreak(id)
         end
     else
         if fr0z3nUI_AutoOpen_Char[id] then print("|cff00ccff[FAO]|r Already in Character whitelist: "..(((type(GetItemNameSafe) == "function" and GetItemNameSafe(id)) or id))) return end
@@ -627,6 +631,9 @@ local function CreateOptionsWindow()
                 local t = fr0z3nUI_AutoOpen_Settings.disabled
                 if t[id] then
                     t[id] = nil
+                    if type(ResetAccFailStreak) == "function" then
+                        ResetAccFailStreak(id)
+                    end
                     print("|cff00ccff[FAO]|r '"..(((type(GetItemNameSafe) == "function" and GetItemNameSafe(id)) or id)).."' will now open on Account")
                 else
                     t[id] = true

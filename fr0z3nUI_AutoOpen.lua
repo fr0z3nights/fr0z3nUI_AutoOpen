@@ -365,6 +365,54 @@ local function GetItemNameSafe(id)
     return nil
 end
 
+-- [ OPEN STATS / AUTO-DISABLE ]
+local function EnsureAccStatsSV()
+    fr0z3nUI_AutoOpen_AccStats = fr0z3nUI_AutoOpen_AccStats or {}
+    if type(fr0z3nUI_AutoOpen_AccStats.items) ~= "table" then
+        fr0z3nUI_AutoOpen_AccStats.items = {}
+    end
+    if type(fr0z3nUI_AutoOpen_AccStats.cfg) ~= "table" then
+        fr0z3nUI_AutoOpen_AccStats.cfg = {}
+    end
+
+    if fr0z3nUI_AutoOpen_AccStats.cfg.disableAfterFails == nil then
+        fr0z3nUI_AutoOpen_AccStats.cfg.disableAfterFails = 5
+    end
+    if fr0z3nUI_AutoOpen_AccStats.cfg.verifyDelay == nil then
+        fr0z3nUI_AutoOpen_AccStats.cfg.verifyDelay = 1.0
+    end
+end
+
+local function GetAccStatsEntry(id)
+    EnsureAccStatsSV()
+    if not id then return nil end
+    local t = fr0z3nUI_AutoOpen_AccStats.items
+    local e = t[id]
+    if type(e) ~= "table" then
+        e = { attempts = 0, success = 0, fail = 0, failStreak = 0, failedGuids = {} }
+        t[id] = e
+    end
+    if type(e.failedGuids) ~= "table" then
+        e.failedGuids = {}
+    end
+    return e
+end
+
+local function ResetAccFailStreak(id)
+    local e = GetAccStatsEntry(id)
+    if not e then return end
+    e.attempts = 0
+    e.success = 0
+    e.fail = 0
+    e.failStreak = 0
+    e.lastAttemptAt = nil
+    e.lastFailAt = nil
+    e.lastSuccessAt = nil
+    e.autoDisabledAt = nil
+    e.autoDisabledReason = nil
+    e.failedGuids = {}
+end
+
 local function GetOpenableTooltipLineText()
     return (_G and _G["ITEM_OPENABLE"]) or nil
 end
@@ -430,6 +478,7 @@ local function InitSV()
     fr0z3nUI_AutoOpen_Char = fr0z3nUI_AutoOpen_Char or {}
     fr0z3nUI_AutoOpen_Settings = fr0z3nUI_AutoOpen_Settings or { disabled = {} }
     fr0z3nUI_AutoOpen_CharSettings = fr0z3nUI_AutoOpen_CharSettings or {}
+    EnsureAccStatsSV()
 
     if type(fr0z3nUI_AutoOpen_Settings.disabled) ~= "table" then
         fr0z3nUI_AutoOpen_Settings.disabled = {}
@@ -1642,6 +1691,130 @@ end
 
 -- [ SCAN ENGINE ]
 frame = CreateFrame('Frame', 'fr0z3nUI_AutoOpenFrame')
+
+local function GetStackCountSafe(bag, slot)
+    if not (C_Container and C_Container.GetContainerItemInfo) then return nil end
+    local info = C_Container.GetContainerItemInfo(bag, slot)
+    if not info then return nil end
+    return tonumber(info.stackCount or 1) or 1
+end
+
+local function NoteOpenAttempt(id)
+    local e = GetAccStatsEntry(id)
+    if not e then return end
+    e.attempts = (tonumber(e.attempts) or 0) + 1
+    e.lastAttemptAt = time and time() or nil
+end
+
+local function NoteOpenSuccess(id)
+    local e = GetAccStatsEntry(id)
+    if not e then return end
+    e.success = (tonumber(e.success) or 0) + 1
+    e.failStreak = 0
+    e.lastSuccessAt = time and time() or nil
+end
+
+local function NoteOpenFailure(id, guid)
+    local e = GetAccStatsEntry(id)
+    if not e then return end
+    e.fail = (tonumber(e.fail) or 0) + 1
+    e.lastFailAt = time and time() or nil
+
+    -- Only advance the streak once per distinct item instance.
+    -- This matches: "5 different pickups of the same itemID" (each pickup typically has a different GUID).
+    if guid and type(guid) == "string" then
+        if not e.failedGuids[guid] then
+            e.failedGuids[guid] = (time and time()) or true
+            e.failStreak = (tonumber(e.failStreak) or 0) + 1
+        end
+    else
+        -- If GUID is unavailable, don't treat repeated retries as new "pickups".
+        -- Still record the failure count, but avoid auto-disabling on noisy repeats.
+        return
+    end
+
+    local cfg = (fr0z3nUI_AutoOpen_AccStats and fr0z3nUI_AutoOpen_AccStats.cfg) or {}
+    local limit = tonumber(cfg.disableAfterFails) or 5
+    if limit < 1 then return end
+
+    if e.failStreak >= limit then
+        if fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and not fr0z3nUI_AutoOpen_Settings.disabled[id] then
+            fr0z3nUI_AutoOpen_Settings.disabled[id] = true
+            e.autoDisabledAt = time and time() or nil
+            e.autoDisabledReason = "failStreak"
+
+            local nm = GetItemNameSafe(id) or ("ID " .. tostring(id))
+            PrintDelayed("Auto-disabled (Account) after " .. tostring(limit) .. " failures: |cffffff00" .. tostring(nm) .. "|r")
+        end
+    end
+end
+
+local function ScheduleOpenVerify(id, bag, slot, hyperlink)
+    if not (C_Timer and C_Timer.After) then return end
+    if not frame then return end
+
+    EnsureAccStatsSV()
+    local cfg = fr0z3nUI_AutoOpen_AccStats.cfg or {}
+    local delay = tonumber(cfg.verifyDelay) or 1.0
+    if delay < 0.1 then delay = 0.1 end
+    if delay > 5 then delay = 5 end
+
+    frame._openVerifySeq = (tonumber(frame._openVerifySeq) or 0) + 1
+    local seq = frame._openVerifySeq
+
+    local guid = GetItemGUIDForBagSlot(bag, slot)
+    local count = GetStackCountSafe(bag, slot)
+    frame._pendingOpen = {
+        seq = seq,
+        id = id,
+        bag = bag,
+        slot = slot,
+        guid = guid,
+        count = count,
+        at = (GetTime and GetTime()) or 0,
+        hyperlink = hyperlink,
+        lootOpened = false,
+    }
+
+    C_Timer.After(delay, function()
+        if not frame then return end
+        local p = frame._pendingOpen
+        if type(p) ~= "table" or p.seq ~= seq then return end
+        frame._pendingOpen = nil
+
+        local b2, s2 = nil, nil
+        if p.guid then
+            b2, s2 = FindBagSlotByGUID(p.guid)
+        else
+            b2, s2 = p.bag, p.slot
+        end
+
+        if not (b2 and s2) then
+            NoteOpenSuccess(p.id)
+            return
+        end
+
+        local curID = C_Container.GetContainerItemID(b2, s2)
+        if curID ~= p.id then
+            NoteOpenSuccess(p.id)
+            return
+        end
+
+        if p.lootOpened == true then
+            NoteOpenSuccess(p.id)
+            return
+        end
+
+        local curCount = GetStackCountSafe(b2, s2)
+        if curCount and p.count and curCount < p.count then
+            NoteOpenSuccess(p.id)
+            return
+        end
+
+        NoteOpenFailure(p.id, p.guid)
+    end)
+end
+
 function frame:RunScan(isKick)
     if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
     if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
@@ -1721,8 +1894,10 @@ function frame:RunScan(isKick)
                             else
                                 PrintDelayed("Opening " .. (info.hyperlink or id))
                             end
+                            NoteOpenAttempt(id)
                             C_Container.UseContainerItem(b, s)
                             lastOpenTime = (GetTime and GetTime()) or 0
+                            ScheduleOpenVerify(id, b, s, info.hyperlink)
                             -- Chain-open: keep scanning until all eligible items are opened.
                             if RequestScan then RequestScan(GetOpenCooldown() + 0.05) end
                             return
@@ -1842,6 +2017,16 @@ frame:SetScript('OnEvent', function(self, event, ...)
         -- Safety net: if something flipped auto-loot off after zoning, re-apply right when loot opens.
         InitSV()
         ApplyAutoLootSettingOnWorld()
+
+        -- Best-effort success hint: loot opening shortly after a UseContainerItem likely means success.
+        if frame and type(frame._pendingOpen) == "table" then
+            local p = frame._pendingOpen
+            local now = (GetTime and GetTime()) or 0
+            local at = tonumber(p.at or 0) or 0
+            if now > 0 and at > 0 and (now - at) <= 1.75 then
+                p.lootOpened = true
+            end
+        end
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = ...
         InitSV()
@@ -2045,6 +2230,7 @@ local function ResetAllSavedVariables()
     fr0z3nUI_AutoOpen_Settings = {}
     fr0z3nUI_AutoOpen_CharSettings = {}
     fr0z3nUI_AutoOpen_Timers = {}
+    fr0z3nUI_AutoOpen_AccStats = {}
     didPruneCustomWhitelists = false
     InitSV()
 end
@@ -2589,6 +2775,7 @@ ns.API.InitSV = InitSV
 ns.API.NormalizeCooldown = NormalizeCooldown
 ns.API.GetOpenCooldown = GetOpenCooldown
 ns.API.ResetAllSavedVariables = ResetAllSavedVariables
+ns.API.ResetAccFailStreak = ResetAccFailStreak
 ns.API.GetItemNameSafe = GetItemNameSafe
 ns.API.GetRequiredLevelForID = GetRequiredLevelForID
 ns.API.IsProbablyOpenableCacheID = IsProbablyOpenableCacheID

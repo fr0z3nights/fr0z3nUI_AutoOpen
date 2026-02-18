@@ -7,8 +7,8 @@ ns.items = ns.items or {}
 ns.items[156689] = "Scorched Satchel of Helpful Goods"
 
 -- Darkmoon Faire (Monthly)
-ns.items[127141] = "Bloated Thresher" -- moved from 06 to EV
-ns.items[124670] = "Sealed Darkmoon Crate" -- moved from 06 to EV
+ns.items[127141] = "Bloated Thresher"                         -- moved from 06 to EV
+ns.items[124670] = "Sealed Darkmoon Crate"                    -- moved from 06 to EV
 ns.items[116062] = "Greater Darkmoon Pet Supplies"
 ns.items[ 91086] = "Darkmoon Pet Supplies"
 ns.items[ 78910] = "Sack o' Tokens"
@@ -48,12 +48,18 @@ ns.items[213428] = "Loot-Stuffed Basket"
 -- ns.items[ 45072] = "Brightly Colored Egg" -- No longer works
 
 -- Brewfest
+ns.items[243347] = "Keg of Curiosities"                       -- from OpenableBeGone
+ns.items[243293] = "Bag of Brewfest Merchandise"              -- from OpenableBeGone
+ns.items[243292] = "Bag of Brewfest Merchandise"              -- from OpenableBeGone
+ns.items[243291] = "Bag of Brewfest Merchandise"              -- from OpenableBeGone
 ns.items[149752] = "Keg-Shaped Treasure Box"
 ns.items[117393] = "Keg-Shaped Treasure Chest"
 ns.items[ 54535] = "Keg-Shaped Treasure Chest"
 
 -- Hallow's End (Halloween)
+ns.items[209025] = "Loot-Filled Pumpkin"                             -- OpenableBeGone
 ns.items[209024] = "Loot-Filled Pumpkin"
+ns.items[209020] = "Loot-Filled Pumpkin"                             -- OpenableBeGone
 ns.items[149574] = "Loot-Stuffed Pumpkin"
 ns.items[ 37586] = "Handful of Treats"
 
@@ -65,15 +71,15 @@ ns.items[232598] = "Bag of Timewarped Badges"
 ns.items[229359] = "Chromie's Goodie Bag"
 ns.items[229355] = "Chromie's Premium Goodie Bag"
 ns.items[226102] = "Chromie's Tour Goodie Bag"
-ns.items[208211] = "Anniversary Gift" -- 19th Anniversary
-ns.items[187710] = "Anniversary Gift" -- 18th Anniversary
-ns.items[185906] = "Anniversary Gift" -- 17th Anniversary
-ns.items[178513] = "Anniversary Gift" -- 16th Anniversary
-ns.items[172014] = "Anniversary Gift" -- 15th Anniversary
-ns.items[162637] = "Anniversary Gift" -- 14th Anniversary
-ns.items[147876] = "Anniversary Gift" -- 13th Anniversary
-ns.items[139284] = "Anniversary Gift" -- 12th Anniversary
-ns.items[128513] = "Anniversary Gift" -- 11th Anniversary
+ns.items[208211] = "Anniversary Gift"                         -- 19th Anniversary
+ns.items[187710] = "Anniversary Gift"                         -- 18th Anniversary
+ns.items[185906] = "Anniversary Gift"                         -- 17th Anniversary
+ns.items[178513] = "Anniversary Gift"                         -- 16th Anniversary
+ns.items[172014] = "Anniversary Gift"                         -- 15th Anniversary
+ns.items[162637] = "Anniversary Gift"                         -- 14th Anniversary
+ns.items[147876] = "Anniversary Gift"                         -- 13th Anniversary
+ns.items[139284] = "Anniversary Gift"                         -- 12th Anniversary
+ns.items[128513] = "Anniversary Gift"                         -- 11th Anniversary
 -- ns.items[233014] = "Bronze Celebration Cache of Treasures" -- disabled (level 80 spam)
 -- ns.items[232471] = "Cache of Dark Iron Treasures" -- disabled (level 80 spam)
 
@@ -91,8 +97,8 @@ ns.items[ 17726] = "Smokywood Pastures Special Gift"
 ns.items[ 17685] = "Smokywood Pastures Sampler"
 
 -- Winter Veil (Tree Gifts)
-ns.items[244908] = "Winter Veil Gift" -- looted 251225
-ns.items[244906] = "Gently Shaken Gift" -- looted 251225
+ns.items[244908] = "Winter Veil Gift"                         -- looted 251225
+ns.items[244906] = "Gently Shaken Gift"                       -- looted 251225
 ns.items[218311] = "Winter Veil Gift"
 ns.items[218309] = "Gently Shaken Gift"
 ns.items[ 21327] = "Ticking Present"

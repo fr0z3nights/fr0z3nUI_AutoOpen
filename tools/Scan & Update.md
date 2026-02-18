@@ -1,6 +1,15 @@
 # FAO (fr0z3nUI_AutoOpen) — Scan & Update
 
-This note documents the repeatable workflow for scanning external addons (and this repo) for itemIDs, and updating FAO’s databases without importing obvious false-positives (lockboxes/manual-use items, etc).
+This note documents the repeatable workflow for scanning external addons (and this repo) for itemIDs, and updating FAO’s databases using a **review-first, non-destructive** approach.
+
+Policy:
+- Scanners and audits should **only generate reports and candidate blocks**.
+- Do **not** remove/move items based on “judgement calls” (e.g. “this looks like gear” or “another addon doesn’t open it”). If something looks suspicious, **flag it** and let you decide.
+- Only you decide what’s “wrong”. Neither scripts nor the assistant should auto-move IDs into `ns.exclude`/`ns.timed`; they can only surface candidates for your manual edit.
+
+Definitions:
+- **Duplicate** = the same itemID appears more than once anywhere in FAO’s databases (regardless of provenance).
+- **Wrong/undesired to auto-open** ≠ “delete it”. If you decide FAO should not auto-open an item, keep the ID present by putting it in `ns.exclude[...]` (or `ns.timed[...]`) so it stays in the known-union and won’t keep resurfacing as “missing” in future scans.
 
 Key learnings from the last import pass:
 - Parse patterns must allow **whitespace inside brackets** (FAO uses aligned formatting like `ns.exclude[  4632]`).
@@ -28,11 +37,32 @@ When scanning a source addon (e.g. Open‑Sesame, OpenableBeGone), don’t only 
 - If the source addon *blacklists* / “don’t open” / “manual only” / “locked” → candidate for FAO `ns.exclude`
 - If the source addon has a *cooldown/timer/egg hatch* concept → candidate for FAO `ns.timed`
 
-Concrete heuristics that worked well:
-- Open‑Sesame: IDs that exist but are **commented out** (e.g. `-- [12345] = true`) should be treated as “source excluded/disabled” and reviewed for FAO `ns.exclude`.
-- OpenableBeGone: IDs present in `OpenableBeGoneAllLockedContainerItemIds` are locked containers; they generally belong in FAO `ns.exclude`.
+Rule:
+- Only move/add IDs into `ns.exclude[...]` when the **source addon explicitly signals exclusion** (blacklist/manual-only/locked/commented-out allow, etc.). Do not exclude items just because they “seem wrong”.
+
+Review rule (source excludes vs FAO whitelist):
+- If an itemID is present in FAO (`ns.items[...]`) and **FAO does not exclude it**, but a source addon explicitly marks it as excluded/locked/manual-only, keep it in FAO (do not delete). For visibility, you can **manually move** that `ns.items[...]` line to the bottom of the same file under a “REVIEW” header so it’s easy to audit.
+
+Concrete signals that can be useful during review:
+- Open‑Sesame: IDs that exist but are **commented out** (e.g. `-- [12345] = true`) indicate the source addon chose not to open them by default. Treat as a *review signal*; do not auto-move/remove anything.
+- OpenableBeGone: IDs present in `OpenableBeGoneAllLockedContainerItemIds` are locked containers in that addon’s model. This is often a good *exclude candidate*, but still requires review.
 
 This prevents importing items that the source addon itself avoids (lockboxes, currency bundles, profession-locked containers, etc.).
+
+### 3) Use the AutoOpenContainers scanner (automation)
+There is a repeatable scanner script that diffs AutoOpenContainers’ `Data.OPENABLE`/`Data.LOCKED` against **known IDs**.
+
+Script:
+- `AddonDev\tools\scan_autoopencontainers.ps1`
+
+Run it from inside `fr0z3nUI_AutoOpen/`:
+- FAO-only known-union (fast): `powershell -ExecutionPolicy Bypass -File ..\tools\scan_autoopencontainers.ps1`
+- Known-union across **all addons** under AddonDev (use this when you want “it’s already in my addon(s)” coverage): `powershell -ExecutionPolicy Bypass -File ..\tools\scan_autoopencontainers.ps1 -ScanAllAddons`
+
+Outputs (written to `AddonDev\reports\`):
+- `aoc-scan-latest.md` (missing counts + lists)
+- `aoc-import-blocks-latest.md` (copy/paste candidate blocks)
+- `aoc-duplicates-latest.md` (flags `-- from AutoOpenContainers` lines for review when an ID appears multiple times or alongside non-AOC entries)
 
 ## Update rules
 

@@ -4,7 +4,7 @@
 ## Notes: Auto-Opens Caches. Open UI /fao
 ## Author: fr0z3nights
 ## Version: 2026.01.14
-## SavedVariables: fr0z3nUI_AutoOpen_Acc, fr0z3nUI_AutoOpen_Settings, fr0z3nUI_AutoOpen_Timers, fr0z3nUI_AutoOpen_UI
+## SavedVariables: fr0z3nUI_AutoOpen_Acc, fr0z3nUI_AutoOpen_AccStats, fr0z3nUI_AutoOpen_Settings, fr0z3nUI_AutoOpen_Timers, fr0z3nUI_AutoOpen_UI
 ## SavedVariablesPerCharacter: fr0z3nUI_AutoOpen_Char, fr0z3nUI_AutoOpen_CharSettings
 # IconTexture: Interface\AddOns\fr0z3nUI_AutoOpen\Icons\AutoIcon.tga
 

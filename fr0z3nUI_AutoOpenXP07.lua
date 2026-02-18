@@ -4,16 +4,6 @@ ns.items = ns.items or {}
 -- [ Expansion 07: Legion / Legion Remix - Whitelist ]
 
 -- Legion Remix
-ns.items[256763] = "Cache from the Infinite's Armory"
-ns.items[251821] = "Cache of Infinite Power"
-ns.items[248247] = "Cache of Infinite Power"
-ns.items[246815] = "Lesser Bronze Cache"
-ns.items[246814] = "Bronze Cache"
-ns.items[246813] = "Greater Bronze Cache"
-ns.items[246812] = "Minor Bronze Cache"
-ns.items[245553] = "Heroic Cache of Infinite Treasure"
-ns.items[243373] = "Timerunner's Weaponry"
-ns.items[237812] = "Cache of Infinite Treasure"
 
 -- Legion Core Items
 ns.items[165851] = "Bag of Anchors"
@@ -73,7 +63,6 @@ ns.items[160485] = "An Unforgettable Luncheon"
 ns.items[160439] = "Adventurer's Footlocker"
 ns.items[160324] = "Grumbling Sac"
 ns.items[160322] = "Pile of Ore"
-ns.items[160268] = "Bag of Armor (DNT)"
 ns.items[160054] = "War-Torn Satchel of Cooperation"
 ns.items[159783] = "Kane's Coin Purse"
 ns.items[156836] = "Bulging Package"
