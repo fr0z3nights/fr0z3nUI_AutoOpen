@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   # Optional override for where backups are stored.
-  # Default is: <AddonDev>\z Backup\fr0z3nUI_Backups\<addonName>
+  # Default is: <AddonDev>\z Backup\<addonShort>
   [string]$BackupRoot,
 
   # Retention window. Backups older than this are deleted.
@@ -16,7 +16,16 @@ if (-not $repoRoot) { throw 'Unable to determine git repo root.' }
 
 $addonName = Split-Path -Leaf $repoRoot
 $addonDevRoot = Split-Path -Parent $repoRoot
-$defaultBackupRoot = Join-Path $addonDevRoot ('z Backup\\fr0z3nUI_Backups\\' + $addonName)
+$shortMap = @{
+  'fr0z3nUI_AutoOpen'     = 'FAO'
+  'fr0z3nUI_DateTime'     = 'FDT'
+  'fr0z3nUI_GameOptions'  = 'FGO'
+  'fr0z3nUI_LootIt'       = 'FLI'
+  'fr0z3nUI_QuestTracker' = 'FQT'
+}
+$addonShort = $shortMap[$addonName]
+if ([string]::IsNullOrWhiteSpace($addonShort)) { $addonShort = $addonName }
+$defaultBackupRoot = Join-Path $addonDevRoot ('z Backup\\' + $addonShort)
 
 $backupRoot = if ([string]::IsNullOrWhiteSpace($BackupRoot)) { $defaultBackupRoot } else { $BackupRoot }
 if (-not (Test-Path -LiteralPath $backupRoot)) {

@@ -94,8 +94,34 @@ local function IsAutoOpenEnabledNow()
     return fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false
 end
 
+local function IsPlayerDeadOrGhost()
+    if UnitIsDeadOrGhost then
+        return UnitIsDeadOrGhost("player") and true or false
+    end
+    if UnitIsDead and UnitIsDead("player") then
+        return true
+    end
+    if UnitIsGhost and UnitIsGhost("player") then
+        return true
+    end
+    return false
+end
+
+local function CancelPendingScanTimer()
+    if not frame then
+        return
+    end
+    if frame._scanTimer and frame._scanTimer.Cancel then
+        frame._scanTimer:Cancel()
+    end
+    frame._scanTimer = nil
+    frame._scanTimerAt = nil
+    scanPending = false
+end
+
 local function IsScanAllowedNow()
     if not IsAutoOpenEnabledNow() then return false, "auto open OFF" end
+    if IsPlayerDeadOrGhost() then return false, "dead" end
     RefreshInteractionFlagsFromUI()
     if atBank then return false, "bank" end
     if atMail then return false, "mail" end
@@ -1818,6 +1844,7 @@ end
 function frame:RunScan(isKick)
     if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
     if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
+    if IsPlayerDeadOrGhost() then return end
     RefreshInteractionFlagsFromUI()
     if atBank or atMail or atMerchant or atTrade or atAuction then return end
     if (InCombatLockdown and InCombatLockdown()) then return end
@@ -1911,6 +1938,7 @@ end
 
 -- [ EVENTS ]
 frame:RegisterEvent('BAG_UPDATE_DELAYED'); frame:RegisterEvent('PLAYER_LOGIN'); frame:RegisterEvent('PLAYER_REGEN_ENABLED')
+frame:RegisterEvent('PLAYER_DEAD'); frame:RegisterEvent('PLAYER_ALIVE'); frame:RegisterEvent('PLAYER_UNGHOST')
 frame:RegisterEvent('PLAYER_ENTERING_WORLD')
 frame:RegisterEvent('PLAYER_LEVEL_UP')
 frame:RegisterEvent('LOOT_OPENED')
@@ -1967,6 +1995,16 @@ RequestScan = function(delay)
 end
 
 frame:SetScript('OnEvent', function(self, event, ...)
+    if event == "PLAYER_DEAD" then
+        CancelPendingScanTimer()
+        return
+    end
+    if event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
+        if RequestScan then
+            RequestScan(0.5)
+        end
+        return
+    end
     if event == "PLAYER_LOGIN" then 
         InitSV()
         EnsureWatchdogTicker()

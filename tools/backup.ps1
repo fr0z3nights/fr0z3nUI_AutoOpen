@@ -8,7 +8,7 @@ param(
   [switch]$IncludeUntracked,
 
   # Optional override for where backups are stored.
-  # Default is: <AddonDev>\z Backup\fr0z3nUI_Backups\<addonName>
+  # Default is: <AddonDev>\z Backup\<addonShort>
   [string]$BackupRoot
 )
 
@@ -21,7 +21,16 @@ $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 
 $addonName = Split-Path -Leaf $repoRoot
 $addonDevRoot = Split-Path -Parent $repoRoot
-$defaultBackupRoot = Join-Path $addonDevRoot ('z Backup\\fr0z3nUI_Backups\\' + $addonName)
+$shortMap = @{
+  'fr0z3nUI_AutoOpen'     = 'FAO'
+  'fr0z3nUI_DateTime'     = 'FDT'
+  'fr0z3nUI_GameOptions'  = 'FGO'
+  'fr0z3nUI_LootIt'       = 'FLI'
+  'fr0z3nUI_QuestTracker' = 'FQT'
+}
+$addonShort = $shortMap[$addonName]
+if ([string]::IsNullOrWhiteSpace($addonShort)) { $addonShort = $addonName }
+$defaultBackupRoot = Join-Path $addonDevRoot ('z Backup\\' + $addonShort)
 
 $backupRoot = if ([string]::IsNullOrWhiteSpace($BackupRoot)) { $defaultBackupRoot } else { $BackupRoot }
 $backupDir = Join-Path $backupRoot $timestamp
@@ -35,6 +44,10 @@ function Copy-RelativeFile {
 
   $relative = Resolve-Path -LiteralPath $AbsolutePath | ForEach-Object {
     $_.Path.Substring($repoRoot.Length).TrimStart('\','/')
+  }
+
+  if ($relative -match '^(\.git|\.svn|\.hg)([\\/]|$)') {
+    return
   }
 
   $destPath = Join-Path $backupDir $relative
@@ -95,6 +108,16 @@ if ($Paths -and $Paths.Count -gt 0) {
 
 $files = $files | Sort-Object -Property FullName -Unique
 
+$gitDir = Join-Path $repoRoot '.git'
+$svnDir = Join-Path $repoRoot '.svn'
+$hgDir  = Join-Path $repoRoot '.hg'
+$files = $files | Where-Object {
+  $_ -and $_.FullName -and
+  ($_.FullName -notlike ($gitDir + '*')) -and
+  ($_.FullName -notlike ($svnDir + '*')) -and
+  ($_.FullName -notlike ($hgDir + '*'))
+}
+
 foreach ($f in $files) {
   if ($f -and (Test-Path -LiteralPath $f.FullName)) {
     Copy-RelativeFile -AbsolutePath $f.FullName
@@ -104,7 +127,8 @@ foreach ($f in $files) {
 $meta = [ordered]@{
   timestamp = $timestamp
   repoRoot  = $repoRoot
-  addonName = $addonName
+  addonName = $addonShort
+  addonNameLong = $addonName
   backupRoot = $backupRoot
   mode      = $Mode
   includeUntracked = [bool]$IncludeUntracked
