@@ -1,3 +1,5 @@
+---@diagnostic disable: undefined-global
+
 local addonName, ns = ...
 local lastOpenTime = 0
 local atBank, atMail, atMerchant, atTrade, atAuction = false, false, false, false, false
@@ -14,6 +16,7 @@ local WATCHDOG_MIN_SCAN_GAP = 12
 local IsLootOpenSafe
 
 local PREFIX = "|cff00ccff[FAO]|r "
+local SANITY_VERSION = "260301-001"
 local PRINT_QUEUE_START_DELAY = 0.05
 local PRINT_QUEUE_STEP_DELAY = 0.12
 local MAX_QUEUED_PRINTS = 50
@@ -2444,6 +2447,7 @@ SlashCmdList["FAO"] = function(msg)
         print("|cff00ccff[FAO]|r Commands:")
         print("|cff00ccff[FAO]|r /fao              - open/toggle window")
         print("|cff00ccff[FAO]|r /fao <itemid>      - open window + set item id")
+        print("|cff00ccff[FAO]|r /fao status        - print current settings summary")
         print("|cff00ccff[FAO]|r /fao kick          - manual scan kick")
         print("|cff00ccff[FAO]|r /fao on|off        - auto-open containers (shorthand)")
         print("|cff00ccff[FAO]|r /fao ao on|off     - auto-open containers")
@@ -2454,6 +2458,26 @@ SlashCmdList["FAO"] = function(msg)
         print("|cff00ccff[FAO]|r /fao talents       - talent reminder help")
         print("|cff00ccff[FAO]|r /fao debug talents - toggle talent debug output")
         print("|cff00ccff[FAO]|r /fao debug gv      - toggle Great Vault debug output")
+        return
+    end
+
+    if cmd == "status" or cmd == "stat" then
+        local function CountKeys(t)
+            local n = 0
+            if type(t) ~= "table" then return 0 end
+            for _ in pairs(t) do n = n + 1 end
+            return n
+        end
+
+        local autoOpen = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen ~= false) and true or false
+        local accCount = CountKeys(fr0z3nUI_AutoOpen_Acc)
+        local charCount = CountKeys(fr0z3nUI_AutoOpen_Char)
+        local accDisabled = CountKeys(fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled)
+        local charDisabled = CountKeys(fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled)
+
+        print("|cff00ccff[FAO]|r Status: (sanity " .. tostring(SANITY_VERSION) .. ")")
+        print("|cff00ccff[FAO]|r Auto Open: " .. (autoOpen and "|cff00ff00ON|r" or "|cffff0000OFF|r"))
+        print(string.format("|cff00ccff[FAO]|r Lists: Account=%d (disabled=%d)  Character=%d (disabled=%d)", accCount, accDisabled, charCount, charDisabled))
         return
     end
 
