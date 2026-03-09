@@ -999,9 +999,12 @@ local function GetGreatVaultAutoOpenMode()
 end
 
 local function GetGreatVaultRequiredLevel()
-    -- Midnight pre-patch has historically been noisy about level-cap APIs for a bit.
-    -- Defaulting to 80 keeps behavior sensible for current retail characters.
-    local DEFAULT_CAP = 80
+    -- NOTE: This was originally written with a prepatch heuristic (treating N as the cap
+    -- when the client reported N+10). With Midnight live, that heuristic causes the Great
+    -- Vault to open for level 80 characters when the real cap is 90.
+    --
+    -- If the API is unavailable, fall back to the current expansion's expected cap.
+    local DEFAULT_CAP = 90
 
     local maxLevel = GetMaxLevelForPlayerExpansionSafe() or GetMaxPlayerLevelSafe()
     if type(maxLevel) ~= "number" then
@@ -1011,16 +1014,6 @@ local function GetGreatVaultRequiredLevel()
     -- Guard against clearly wrong values (0, negative, or implausibly high).
     if maxLevel < 10 or maxLevel > 100 then
         return DEFAULT_CAP
-    end
-
-    -- Prepatch heuristic:
-    -- Sometimes the client reports the *next* expansion cap (e.g., 90) while characters
-    -- are still effectively capped at the current expansion max (e.g., 80).
-    local level = (UnitLevel and UnitLevel("player"))
-    if type(level) == "number" and level >= 60 and (level % 10) == 0 then
-        if (maxLevel - level) == 10 then
-            return level
-        end
     end
 
     return maxLevel
@@ -1034,6 +1027,64 @@ local function IsPlayerAtGreatVaultLevel()
 end
 
 -- [ GREAT VAULT ]
+local function GreatVaultHasClaimableRewardsSafe()
+    -- Returns:
+    --   true  => reward claimable (should open)
+    --   false => no claimable rewards (should not open)
+    --   nil   => unknown/not ready (treat as "don't open" for safety)
+
+    -- Ensure the Blizzard weekly rewards addon is loaded so C_WeeklyRewards is present.
+    if C_AddOns and C_AddOns.LoadAddOn then
+        local ok = true
+        if type(securecall) == "function" then
+            ok = pcall(securecall, C_AddOns.LoadAddOn, "Blizzard_WeeklyRewards")
+        else
+            ok = pcall(C_AddOns.LoadAddOn, "Blizzard_WeeklyRewards")
+        end
+        if not ok then
+            -- If the load fails (rare), avoid opening.
+            return nil
+        end
+    end
+
+    if not C_WeeklyRewards then
+        return nil
+    end
+
+    -- Modern API(s): prefer the explicit "available rewards" helpers.
+    if type(C_WeeklyRewards.HasAvailableRewards) == "function" then
+        local ok, has = pcall(C_WeeklyRewards.HasAvailableRewards)
+        if ok and type(has) == "boolean" then
+            return has
+        end
+    end
+
+    if type(C_WeeklyRewards.CanClaimRewards) == "function" then
+        local ok, can = pcall(C_WeeklyRewards.CanClaimRewards)
+        if ok and type(can) == "boolean" then
+            return can
+        end
+    end
+
+    -- Fallback: attempt to infer from activities if the API surface differs.
+    if type(C_WeeklyRewards.GetActivities) == "function" then
+        local ok, activities = pcall(C_WeeklyRewards.GetActivities)
+        if ok and type(activities) == "table" then
+            for _, a in ipairs(activities) do
+                if type(a) == "table" then
+                    if a.hasReward == true or a.hasAvailableReward == true or a.rewardAvailable == true then
+                        return true
+                    end
+                end
+            end
+            -- If we got activities but none indicate a reward, treat it as none claimable.
+            return false
+        end
+    end
+
+    return nil
+end
+
 local function ShowGreatVaultCore()
     if C_AddOns and C_AddOns.LoadAddOn then
         if type(securecall) == "function" then
@@ -1067,6 +1118,14 @@ ns.ShowGreatVault = function()
     if not enabled then return end
     local ok = IsPlayerAtGreatVaultLevel()
     if ok ~= true then return end
+
+    local hasReward = GreatVaultHasClaimableRewardsSafe()
+    if hasReward ~= true then
+        if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.debugGreatVault then
+            print("|cff00ccff[FAO]|r [GV] Not opening: rewardAvailable="..tostring(hasReward))
+        end
+        return
+    end
     ShowGreatVaultCore()
 end
 
@@ -1118,6 +1177,20 @@ local function QueueGreatVaultAutoOpen(isReloadingUi)
                 C_Timer.After(5, function() Try(attempt + 1) end)
             else
                 frame._gvPending = false
+            end
+            return
+        end
+
+        local hasReward = GreatVaultHasClaimableRewardsSafe()
+        if hasReward ~= true then
+            -- If the weekly rewards systems aren't ready yet, allow a couple retries.
+            if hasReward == nil and attempt < 2 then
+                C_Timer.After(5, function() Try(attempt + 1) end)
+                return
+            end
+            frame._gvPending = false
+            if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.debugGreatVault then
+                print("|cff00ccff[FAO]|r [GV] Skip open: rewardAvailable="..tostring(hasReward))
             end
             return
         end
@@ -2720,12 +2793,13 @@ SlashCmdList["FAO"] = function(msg)
             local lvl = (UnitLevel and UnitLevel("player"))
             local req = GetGreatVaultRequiredLevel and GetGreatVaultRequiredLevel() or "?"
             local atLvl = IsPlayerAtGreatVaultLevel and IsPlayerAtGreatVaultLevel()
+            local rewardAvail = GreatVaultHasClaimableRewardsSafe and GreatVaultHasClaimableRewardsSafe()
             local addonLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("Blizzard_WeeklyRewards"))
             local frameExists = (WeeklyRewardsFrame and true) or false
             local acc = fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.greatVaultAccount
             local charMode = fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.greatVaultMode
             print("|cff00ccff[FAO]|r [GV] mode="..tostring(mode).." enabled="..tostring(enabled).." accFlag="..tostring(acc).." charMode="..tostring(charMode))
-            print("|cff00ccff[FAO]|r [GV] lvl="..tostring(lvl).." req="..tostring(req).." atLvl="..tostring(atLvl).." addonLoaded="..tostring(addonLoaded).." frame="..tostring(frameExists))
+            print("|cff00ccff[FAO]|r [GV] lvl="..tostring(lvl).." req="..tostring(req).." atLvl="..tostring(atLvl).." rewardAvailable="..tostring(rewardAvail).." addonLoaded="..tostring(addonLoaded).." frame="..tostring(frameExists))
             print("|cff00ccff[FAO]|r [GV] didOpenThisLogin="..tostring(frame and frame._didOpenGreatVaultThisLogin).." pending="..tostring(frame and frame._gvPending).." seq="..tostring(frame and frame._gvSeq))
             return
         else
