@@ -42,5 +42,14 @@
     "GameFontNormalLarge",
     "GameFontHighlight",
     "WeeklyRewardsFrame"
+  ],
+  "workspace.ignoreDir": [
+    "z Backup",
+    "z Library",
+    "zz Archive (DONT TOUCH)"
+  ],
+  "diagnostics.disable": [
+    "undefined-global",
+    "undefined-field"
   ]
 }
