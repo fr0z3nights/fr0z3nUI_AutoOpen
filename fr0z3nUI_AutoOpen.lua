@@ -16,7 +16,7 @@ local WATCHDOG_MIN_SCAN_GAP = 12
 local IsLootOpenSafe
 
 local PREFIX = "|cff00ccff[FAO]|r "
-local SANITY_VERSION = "260301-001"
+local SANITY_VERSION = "260317-005"
 local PRINT_QUEUE_START_DELAY = 0.05
 local PRINT_QUEUE_STEP_DELAY = 0.12
 local MAX_QUEUED_PRINTS = 50
@@ -62,6 +62,72 @@ local function PrintDelayed(msg)
     end
 
     C_Timer.After(PRINT_QUEUE_START_DELAY, step)
+end
+
+local function StripLinkBrackets(link)
+    if type(link) ~= "string" or link == "" then
+        return link
+    end
+    -- Remove brackets in the displayed portion: |h[Name]|h -> |hName|h
+    return string.gsub(link, "|h%[([^%]]+)%]|h", "|h%1|h")
+end
+
+local function GetFunnyOpenLine()
+    -- Format expected: "<Item> <line>" (line should start lower-case like "opened with ...").
+    local lines = {
+        -- User requested (base list)
+        "opened with my fishing rod",
+        "opened with my lumber axe",
+        "opened with my foot",
+
+        -- Extra WoW-flavored lines
+        "opened with a goblin wrench",
+        "opened with a gnomish screwdriver",
+        "opened with a murloc",
+        "opened with a hearthstone",
+        "opened with an overconfident /dance",
+        "opened with a suspicious Engineering gadget",
+        "opened with Khadgar's approval",
+        "opened with titan-forged optimism",
+    }
+
+    local classTag = (UnitClass and select(2, UnitClass("player"))) or nil
+    if classTag == "ROGUE" then
+        lines[#lines + 1] = "opened with my lockpicking skill"
+    elseif classTag == "WARRIOR" then
+        lines[#lines + 1] = "charged it open"
+    elseif classTag == "MAGE" then
+        lines[#lines + 1] = "... didn't know i could polymorph boxes"
+    elseif classTag == "HUNTER" then
+        lines[#lines + 1] = "... didn't know feign death opened caches"
+    elseif classTag == "PRIEST" then
+        lines[#lines + 1] = "dispelled the hell out of it"
+    elseif classTag == "SHAMAN" then
+        lines[#lines + 1] = "smashed it open with a totem"
+    elseif classTag == "DRUID" then
+        lines[#lines + 1] = "... the contents is a little singed from that moonfire"
+    elseif classTag == "WARLOCK" then
+        lines[#lines + 1] = "who knew you could summon an imp inside a box"
+    elseif classTag == "DEMONHUNTER" then
+        lines[#lines + 1] = "opened by double jumping on top of it"
+    elseif classTag == "MONK" then
+        lines[#lines + 1] = "spin kicked it open"
+    elseif classTag == "DEATHKNIGHT" then
+        lines[#lines + 1] = "death gripped out the contents"
+    end
+    if classTag == "PALADIN" then
+        lines[#lines + 1] = "opened with the light"
+    end
+
+    local raceTag = (UnitRace and select(2, UnitRace("player"))) or nil
+    if raceTag == "VoidElf" then
+        lines[#lines + 1] = "opened with a void tentacle"
+    end
+
+    if not (math and math.random) or #lines == 0 then
+        return "opened"
+    end
+    return lines[math.random(1, #lines)]
 end
 
 local function IsGlobalFrameShownSafe(frameName)
@@ -1992,10 +2058,11 @@ function frame:RunScan(isKick)
                     then
                         local info = C_Container.GetContainerItemInfo(b, s)
                         if info and info.hasLoot and not info.isLocked then
+                            local link = StripLinkBrackets(info.hyperlink) or tostring(id)
                             if isKick then
-                                PrintDelayed((info.hyperlink or tostring(id)) .. " kicked open")
+                                PrintDelayed(link .. " " .. GetFunnyOpenLine())
                             else
-                                PrintDelayed("Opening " .. (info.hyperlink or id))
+                                PrintDelayed(link)
                             end
                             NoteOpenAttempt(id)
                             C_Container.UseContainerItem(b, s)
