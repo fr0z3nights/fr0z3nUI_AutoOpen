@@ -381,7 +381,19 @@ local function GetNPCNameplatesSettingEffective()
     return true
 end
 
+local function IsFGOActive()
+    local fn = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
+    if type(fn) ~= "function" then
+        return false
+    end
+    local ok, loaded = pcall(fn, "fr0z3nUI_GameOptions")
+    return ok and loaded and true or false
+end
+
 local function ApplyNPCNameplatesSettingOnWorld()
+    if IsFGOActive() then
+        return
+    end
     local enabled = GetNPCNameplatesSettingEffective()
     SetFriendlyNPCNameplatesSafe(enabled)
 end

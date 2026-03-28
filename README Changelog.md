@@ -2,6 +2,13 @@
 
 Format: `YYMMDD-###` (sanity stamp) — short summary.
 
+## 260324-001
+- Files: `fr0z3nUI_AutoOpenToggles.lua`, `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpen.toc`, `fr0z3nUI_AutoOpenXP12.lua`, `fr0z3nUI_AutoOpenXPXX.lua`
+- Toggles/UI: removed the `NPC Name` control (moved to GameOptions `/fgo` Switches tab).
+- CVars: FAO no longer applies the friendly NPC nameplates CVar when `fr0z3nUI_GameOptions` is loaded (prevents the two addons from fighting over `nameplateShowFriendlyNPCs`).
+- Auto-open list: moved the Primalist gear tokens into the exclude list so FAO doesn't try to open them.
+- Bumped TOC `## Version` to `2026.03.24.01`.
+
 ## 260317-001
 - Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpen.toc`
 - Chat: removed the word `Opening` from the auto-open print.

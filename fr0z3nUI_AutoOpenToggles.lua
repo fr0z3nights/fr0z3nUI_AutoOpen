@@ -98,20 +98,6 @@ function ns.Toggles.Build(opts)
         end
     end
 
-    local function UpdateNPCNameButton()
-        if type(InitSV) == "function" then InitSV() end
-        if not f.btnNPCName then return end
-
-        local acc = fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
-        if acc == true then
-            SetSplitButtonText(f.btnNPCName, "NPC Name", "ON ACC")
-        elseif acc == false then
-            SetSplitButtonText(f.btnNPCName, "NPC Name", "OFF ACC")
-        else
-            local enabled = (type(GetNPCNameplatesSettingEffective) == "function") and GetNPCNameplatesSettingEffective() or false
-            SetSplitButtonText(f.btnNPCName, "NPC Name", (enabled and "ON" or "OFF"))
-        end
-    end
 
     local function UpdateGreatVaultButton()
         if type(InitSV) == "function" then InitSV() end
@@ -173,7 +159,6 @@ function ns.Toggles.Build(opts)
     local function UpdateAll()
         UpdateAutoOpenButton()
         UpdateAutoLootButton()
-        UpdateNPCNameButton()
         UpdateGreatVaultButton()
         UpdateCacheLockButton()
         UpdateTalentButtons()
@@ -232,48 +217,6 @@ function ns.Toggles.Build(opts)
         if GameTooltip then GameTooltip:Hide() end
     end)
     f.btnAutoLoot = btnAutoLoot
-
-    local btnNPCName = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
-    btnNPCName:SetSize(BTN_W, BTN_H)
-    btnNPCName:SetPoint("TOP", togglesPanel, "TOP", TOGGLE_COL_X, TOGGLE_TOP_Y - TOGGLE_ROW_STEP)
-    btnNPCName:SetScript("OnClick", function()
-        if type(InitSV) == "function" then InitSV() end
-        local acc = fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
-        if acc == nil then
-            fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
-            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = true
-            print("|cff00ccff[FAO]|r NPC Name: |cff00ff00ON ACC|r")
-        elseif acc == true then
-            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = false
-            print("|cff00ccff[FAO]|r NPC Name: |cffff0000OFF ACC|r")
-        else
-            fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = nil
-            fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
-            print("|cff00ccff[FAO]|r NPC Name: |cff00ff00ON|r")
-        end
-        if type(ApplyNPCNameplatesSettingOnWorld) == "function" then
-            ApplyNPCNameplatesSettingOnWorld()
-        end
-        UpdateNPCNameButton()
-    end)
-    btnNPCName:SetScript("OnEnter", function()
-        if GameTooltip then
-            GameTooltip:SetOwner(f, "ANCHOR_NONE")
-            GameTooltip:ClearAllPoints()
-            GameTooltip:SetPoint("BOTTOM", btnNPCName, "TOP", 0, 10)
-            GameTooltip:SetText("Friendly NPC Nameplates")
-            GameTooltip:AddLine("Cycles: ON (default) -> ON ACC -> OFF ACC", 1, 1, 1, true)
-            local cur = (type(GetFriendlyNPCNameplatesSafe) == "function") and GetFriendlyNPCNameplatesSafe() or nil
-            if cur ~= nil then
-                GameTooltip:AddLine("Current CVar: "..(cur and "ON" or "OFF"), 1, 1, 1, true)
-            end
-            GameTooltip:Show()
-        end
-    end)
-    btnNPCName:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
-    end)
-    f.btnNPCName = btnNPCName
 
     local btnAutoOpen = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
     btnAutoOpen:SetSize(BTN_W, BTN_H)
@@ -531,7 +474,6 @@ function ns.Toggles.Build(opts)
         UpdateAll = UpdateAll,
         UpdateAutoOpenButton = UpdateAutoOpenButton,
         UpdateAutoLootButton = UpdateAutoLootButton,
-        UpdateNPCNameButton = UpdateNPCNameButton,
         UpdateGreatVaultButton = UpdateGreatVaultButton,
         UpdateCacheLockButton = UpdateCacheLockButton,
         UpdateTalentButtons = UpdateTalentButtons,
