@@ -4,6 +4,11 @@ Format: `YYYY.MM.DD.NN` (TOC `## Version`) — short summary. Newest at the top.
 
 Discipline: bump TOC `## Version` on every behavior/UI change (sanity check stays meaningful).
 
+## 2026.04.11.01
+- Files: `fr0z3nUI_AutoOpenXPXX.lua`, `fr0z3nUI_AutoOpen.toc`
+- Auto-open list: exclude `Brightly Colored Egg` (`45072`) from auto-open.
+- Auto-open list: normalize some excluded gear-token entries to include a consistent reason payload.
+
 # 2026.03.24.01
 - Files: `fr0z3nUI_AutoOpenToggles.lua`, `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpen.toc`, `fr0z3nUI_AutoOpenXP12.lua`, `fr0z3nUI_AutoOpenXPXX.lua`
 - Toggles/UI: removed the `NPC Name` control (moved to GameOptions `/fgo` Switches tab).
