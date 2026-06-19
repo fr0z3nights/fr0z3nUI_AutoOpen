@@ -1,6 +1,7 @@
 ﻿local _, ns = ...
 ns.items = ns.items or {}
 
+ns.items[270934] = "Recruit's Field Pouch"                          -- 2026-06-15 Looted
 ns.items[270247] = "Field Satchel"
 ns.items[270244] = "Field Pouch"
 ns.items[269702] = "Overflowing Abundant Satchel"                    -- 2023-11-14 Event Reward
