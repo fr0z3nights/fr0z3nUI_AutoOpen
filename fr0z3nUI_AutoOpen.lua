@@ -21,6 +21,67 @@ local PRINT_QUEUE_START_DELAY = 0.05
 local PRINT_QUEUE_STEP_DELAY = 0.12
 local MAX_QUEUED_PRINTS = 50
 
+local function GetPeekRuleForItemID(id)
+    if not id then return nil end
+    if type(ns) ~= "table" or type(ns.peekOnly) ~= "table" then
+        return nil
+    end
+    return ns.peekOnly[id]
+end
+
+local function HasPeekRuleForItemID(id)
+    return GetPeekRuleForItemID(id) ~= nil
+end
+
+local function IsQuestCompletedSafe(questID)
+    local qid = tonumber(questID)
+    if not qid then return false end
+
+    if C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted then
+        local ok, done = pcall(C_QuestLog.IsQuestFlaggedCompleted, qid)
+        if ok then
+            return done == true
+        end
+    end
+    if IsQuestFlaggedCompleted then
+        local ok, done = pcall(IsQuestFlaggedCompleted, qid)
+        if ok then
+            return done == true
+        end
+    end
+    return false
+end
+
+local function ShouldPeekItemID(id)
+    local rule = GetPeekRuleForItemID(id)
+    if rule == nil then
+        return false
+    end
+
+    if type(rule) == "table" then
+        local questID = tonumber(rule.questID or rule.quest or rule.qid or rule[1])
+        if questID then
+            return not IsQuestCompletedSafe(questID)
+        end
+    end
+
+    return true
+end
+
+local function GetDefaultPeekItemID()
+    if type(ns) ~= "table" or type(ns.peekOnly) ~= "table" then
+        return nil
+    end
+    local pick
+    for id in pairs(ns.peekOnly) do
+        local n = tonumber(id)
+        if n and (not pick or n < pick) then
+            pick = n
+        end
+    end
+    return pick
+end
+
 local function Print(msg)
     print(PREFIX .. tostring(msg or ""))
 end
@@ -296,6 +357,115 @@ local function SetAutoLootDefaultSafe(enabled)
         return true
     end
     return false
+end
+
+local function BeginLootPeek(itemID, link)
+    if not frame then return end
+    local prevAutoLoot = GetAutoLootDefaultSafe()
+    SetAutoLootDefaultSafe(false)
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function()
+            if frame and type(frame._peekLoot) == "table" and frame._peekLoot.id == itemID then
+                SetAutoLootDefaultSafe(false)
+            end
+        end)
+    end
+    frame._peekLoot = {
+        id = itemID,
+        link = StripLinkBrackets(link) or (itemID and ("item:" .. tostring(itemID)) or "container"),
+        prevAutoLoot = prevAutoLoot,
+        at = (GetTime and GetTime()) or 0,
+    }
+end
+
+local function RestoreLootPeekAutoLoot()
+    if not (frame and type(frame._peekLoot) == "table") then
+        return
+    end
+    local p = frame._peekLoot
+    frame._peekLoot = nil
+    if p.prevAutoLoot ~= nil then
+        SetAutoLootDefaultSafe(p.prevAutoLoot and true or false)
+    end
+end
+
+local function GetLootPeekLines()
+    local lines = {}
+
+    if GetNumLootItems and GetLootSlotInfo then
+        local n = tonumber(GetNumLootItems()) or 0
+        for i = 1, n do
+            local _, itemName, quantity = GetLootSlotInfo(i)
+            local link = GetLootSlotLink and GetLootSlotLink(i)
+            local label = StripLinkBrackets(link) or itemName or ("Slot " .. tostring(i))
+            local qty = tonumber(quantity) or 1
+            if qty > 1 then
+                label = label .. " x" .. tostring(qty)
+            end
+            lines[#lines + 1] = label
+        end
+    end
+
+    if #lines == 0 and C_Loot and C_Loot.GetLootInfo then
+        local ok, lootInfo = pcall(C_Loot.GetLootInfo)
+        if ok and type(lootInfo) == "table" then
+            for i = 1, #lootInfo do
+                local e = lootInfo[i]
+                if type(e) == "table" then
+                    local label = StripLinkBrackets(e.itemLink) or e.itemName or ("Slot " .. tostring(i))
+                    local qty = tonumber(e.quantity) or 1
+                    if qty > 1 then
+                        label = label .. " x" .. tostring(qty)
+                    end
+                    lines[#lines + 1] = label
+                end
+            end
+        end
+    end
+
+    return lines
+end
+
+local function StartLootPeekForBagSlot(itemID, bag, slot, hyperlink, displayLink)
+    BeginLootPeek(itemID, hyperlink)
+    PrintDelayed((displayLink or tostring(itemID)) .. " |cffffff00(peek)|r")
+
+    local function doOpen()
+        if not (frame and type(frame._peekLoot) == "table" and frame._peekLoot.id == itemID) then
+            return
+        end
+        SetAutoLootDefaultSafe(false)
+        C_Container.UseContainerItem(bag, slot)
+        lastOpenTime = (GetTime and GetTime()) or 0
+    end
+
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0.05, doOpen)
+        C_Timer.After(4.0, function()
+            if frame and type(frame._peekLoot) == "table" and frame._peekLoot.id == itemID then
+                RestoreLootPeekAutoLoot()
+            end
+        end)
+    else
+        doOpen()
+    end
+end
+
+local function ClosePeekLootWindows()
+    if CloseLoot then
+        pcall(CloseLoot)
+    end
+
+    -- Plumber custom loot UI uses this global frame name.
+    local plumberLootWindow = _G and _G["PlumberLootWindow"]
+    if plumberLootWindow then
+        if plumberLootWindow.TryHide then
+            pcall(plumberLootWindow.TryHide, plumberLootWindow, true)
+        end
+        if plumberLootWindow.Hide then
+            pcall(plumberLootWindow.Hide, plumberLootWindow)
+        end
+    end
 end
 
 local function ApplyAutoLootSettingOnWorld()
@@ -2021,6 +2191,8 @@ function frame:RunScan(isKick)
         if RequestScan then RequestScan(remaining + 0.05) end
         return
     end
+
+    local allowPeekThisScan = (self and self._peekArmOnWorld == true) and true or false
     
     for b = 0, 4 do
         for s = 1, C_Container.GetContainerNumSlots(b) do
@@ -2060,7 +2232,10 @@ function frame:RunScan(isKick)
                 end
                 
                 -- Check Whitelist/Custom IDs and Filter via ns.exclude
-                if not isHatching and (ns.items[id] or fr0z3nUI_AutoOpen_Acc[id] or fr0z3nUI_AutoOpen_Char[id]) then
+                local hasPeekRule = HasPeekRuleForItemID(id)
+                local wantsPeekByRule = hasPeekRule and ShouldPeekItemID(id)
+                local shouldPeek = allowPeekThisScan and wantsPeekByRule
+                if not isHatching and (hasPeekRule or ns.items[id] or fr0z3nUI_AutoOpen_Acc[id] or fr0z3nUI_AutoOpen_Char[id]) then
                     local req = GetRequiredLevelForID(id)
                     if req and UnitLevel and UnitLevel("player") < req then
                         -- Level-locked openable: do not auto-open yet
@@ -2068,21 +2243,35 @@ function frame:RunScan(isKick)
                         and not (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id])
                         and not (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id])
                     then
+                        -- If this item is quest-gated for peek and we're not in the
+                        -- one-shot entering-world peek scan, do not open it normally.
+                        if wantsPeekByRule and not shouldPeek then
+                            -- Keep the one-shot arm for a future scan triggered by entering world.
+                            -- Do not consume it here.
+                        else
                         local info = C_Container.GetContainerItemInfo(b, s)
                         if info and info.hasLoot and not info.isLocked then
                             local link = StripLinkBrackets(info.hyperlink) or tostring(id)
-                            if isKick then
+                            if isKick and not shouldPeek then
                                 PrintDelayed(link .. " " .. GetFunnyOpenLine())
-                            else
+                            elseif not shouldPeek then
                                 PrintDelayed(link)
                             end
-                            NoteOpenAttempt(id)
-                            C_Container.UseContainerItem(b, s)
-                            lastOpenTime = (GetTime and GetTime()) or 0
-                            ScheduleOpenVerify(id, b, s, info.hyperlink)
+                            if shouldPeek then
+                                if self then
+                                    self._peekArmOnWorld = false
+                                end
+                                StartLootPeekForBagSlot(id, b, s, info.hyperlink, link)
+                            else
+                                NoteOpenAttempt(id)
+                                C_Container.UseContainerItem(b, s)
+                                lastOpenTime = (GetTime and GetTime()) or 0
+                                ScheduleOpenVerify(id, b, s, info.hyperlink)
+                            end
                             -- Chain-open: keep scanning until all eligible items are opened.
                             if RequestScan then RequestScan(GetOpenCooldown() + 0.05) end
                             return
+                        end
                         end
                     end
                 end
@@ -2097,6 +2286,7 @@ frame:RegisterEvent('PLAYER_DEAD'); frame:RegisterEvent('PLAYER_ALIVE'); frame:R
 frame:RegisterEvent('PLAYER_ENTERING_WORLD')
 frame:RegisterEvent('PLAYER_LEVEL_UP')
 frame:RegisterEvent('LOOT_OPENED')
+frame:RegisterEvent('LOOT_CLOSED')
 frame:RegisterEvent('BANKFRAME_OPENED'); frame:RegisterEvent('BANKFRAME_CLOSED'); frame:RegisterEvent('MAIL_SHOW'); frame:RegisterEvent('MAIL_CLOSED')
 frame:RegisterEvent('MERCHANT_SHOW'); frame:RegisterEvent('MERCHANT_CLOSED')
 frame:RegisterEvent('TRADE_SHOW'); frame:RegisterEvent('TRADE_CLOSED')
@@ -2203,13 +2393,17 @@ frame:SetScript('OnEvent', function(self, event, ...)
 
         -- Re-scan after zone/instance transitions and /reload.
         -- Bag events usually cover this, but PLAYER_ENTERING_WORLD is a reliable backstop.
+        self._peekArmOnWorld = true
         if RequestScan then
             RequestScan(isInitialLogin and 2.0 or 1.0)
         end
     elseif event == "LOOT_OPENED" then
         -- Safety net: if something flipped auto-loot off after zoning, re-apply right when loot opens.
-        InitSV()
-        ApplyAutoLootSettingOnWorld()
+        -- Do not do this during peek mode, or it can re-enable looting before close.
+        if not (frame and type(frame._peekLoot) == "table") then
+            InitSV()
+            ApplyAutoLootSettingOnWorld()
+        end
 
         -- Best-effort success hint: loot opening shortly after a UseContainerItem likely means success.
         if frame and type(frame._pendingOpen) == "table" then
@@ -2219,6 +2413,34 @@ frame:SetScript('OnEvent', function(self, event, ...)
             if now > 0 and at > 0 and (now - at) <= 1.75 then
                 p.lootOpened = true
             end
+        end
+        if frame and type(frame._peekLoot) == "table" then
+            local p = frame._peekLoot
+            local lines = GetLootPeekLines()
+            if #lines > 0 then
+                PrintDelayed((p.link or "container") .. " contents:")
+                for i = 1, #lines do
+                    PrintDelayed("  - " .. lines[i])
+                end
+            else
+                PrintDelayed((p.link or "container") .. " contents: (none)")
+            end
+            PrintDelayed("|cffff9900Opening Locks Daily Loot|r")
+
+            if C_Timer and C_Timer.After then
+                C_Timer.After(0.05, function()
+                    ClosePeekLootWindows()
+                end)
+                C_Timer.After(0.20, function()
+                    ClosePeekLootWindows()
+                end)
+            else
+                ClosePeekLootWindows()
+            end
+        end
+    elseif event == "LOOT_CLOSED" then
+        if frame and type(frame._peekLoot) == "table" then
+            RestoreLootPeekAutoLoot()
         end
     elseif event == "PLAYER_LEVEL_UP" then
         local newLevel = ...
@@ -2605,6 +2827,7 @@ SlashCmdList["FAO"] = function(msg)
         print("|cff00ccff[FAO]|r /fao ao on|off     - auto-open containers")
         print("|cff00ccff[FAO]|r /fao cache [sec]   - pause auto-open briefly")
         print("|cff00ccff[FAO]|r /fao autoloot       - toggle forcing Auto Loot ON at login")
+        print("|cff00ccff[FAO]|r /fao peek [itemid]  - list loot without taking it")
         print("|cff00ccff[FAO]|r /fao cd <seconds>  - open cooldown (0-10)")
         print("|cff00ccff[FAO]|r /fao gv            - cycle Great Vault OFF/ON/RL")
         print("|cff00ccff[FAO]|r /fao talents       - talent reminder help")
@@ -2640,6 +2863,25 @@ SlashCmdList["FAO"] = function(msg)
                 frame:RunScan(true)
             end
         end)
+        return
+    end
+
+    if cmd == "peek" then
+        local targetID = tonumber(arg) or GetDefaultPeekItemID()
+        if not targetID then
+            print("|cff00ccff[FAO]|r Peek: no items configured in peek database")
+            return
+        end
+        local slots = FindBagSlotsByItemID(targetID)
+        if #slots == 0 then
+            print("|cff00ccff[FAO]|r Peek: item " .. tostring(targetID) .. " not found in bags")
+            return
+        end
+
+        local target = slots[1]
+        local info = C_Container.GetContainerItemInfo(target.bag, target.slot)
+        local link = (info and StripLinkBrackets(info.hyperlink)) or ("item:" .. tostring(targetID))
+        StartLootPeekForBagSlot(targetID, target.bag, target.slot, info and info.hyperlink, link)
         return
     end
 
