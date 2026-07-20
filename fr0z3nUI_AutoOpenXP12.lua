@@ -7,6 +7,7 @@ ns.items[271222] = "Bulging Recruit's Cache"                            -- 2026-
 ns.items[271221] = "Wriggling Recruit's Field Pouch"                    -- 2026-06-23 Looted
 ns.items[270987] = "Recruit's Field Pouch"                              -- 2026-07-09 Looted
 ns.items[270934] = "Recruit's Field Pouch"                              -- 2026-06-15 Looted
+ns.items[270933] = "Bulging Field Pouch"                                -- 2026-07-18 Looted
 ns.items[270932] = "Wriggling Field Pouch"                              -- 2026-07-11 Looted
 ns.items[270431] = "Haranir Footlocker"                                 -- 2026-07-09 Looted
 ns.items[270247] = "Field Satchel"

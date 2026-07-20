@@ -237,6 +237,19 @@ local function IsPlayerDeadOrGhost()
     return false
 end
 
+local function IsPlayerInVehicleState()
+    if UnitInVehicle and UnitInVehicle("player") then
+        return true
+    end
+    if UnitHasVehicleUI and UnitHasVehicleUI("player") then
+        return true
+    end
+    if CanExitVehicle and CanExitVehicle() then
+        return true
+    end
+    return false
+end
+
 local function CancelPendingScanTimer()
     if not frame then
         return
@@ -252,6 +265,7 @@ end
 local function IsScanAllowedNow()
     if not IsAutoOpenEnabledNow() then return false, "auto open OFF" end
     if IsPlayerDeadOrGhost() then return false, "dead" end
+    if IsPlayerInVehicleState() then return false, "vehicle" end
     RefreshInteractionFlagsFromUI()
     if atBank then return false, "bank" end
     if atMail then return false, "mail" end
@@ -2169,6 +2183,7 @@ function frame:RunScan(isKick)
     if not fr0z3nUI_AutoOpen_Settings or not fr0z3nUI_AutoOpen_Acc or not fr0z3nUI_AutoOpen_Char or not fr0z3nUI_AutoOpen_CharSettings then InitSV() end
     if fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.autoOpen == false then return end
     if IsPlayerDeadOrGhost() then return end
+    if IsPlayerInVehicleState() then return end
     RefreshInteractionFlagsFromUI()
     if atBank or atMail or atMerchant or atTrade or atAuction then return end
     if (InCombatLockdown and InCombatLockdown()) then return end
@@ -2284,6 +2299,7 @@ end
 frame:RegisterEvent('BAG_UPDATE_DELAYED'); frame:RegisterEvent('PLAYER_LOGIN'); frame:RegisterEvent('PLAYER_REGEN_ENABLED')
 frame:RegisterEvent('PLAYER_DEAD'); frame:RegisterEvent('PLAYER_ALIVE'); frame:RegisterEvent('PLAYER_UNGHOST')
 frame:RegisterEvent('PLAYER_ENTERING_WORLD')
+frame:RegisterEvent('UNIT_ENTERED_VEHICLE'); frame:RegisterEvent('UNIT_EXITED_VEHICLE')
 frame:RegisterEvent('PLAYER_LEVEL_UP')
 frame:RegisterEvent('LOOT_OPENED')
 frame:RegisterEvent('LOOT_CLOSED')
@@ -2340,6 +2356,20 @@ RequestScan = function(delay)
 end
 
 frame:SetScript('OnEvent', function(self, event, ...)
+    if event == "UNIT_ENTERED_VEHICLE" then
+        local unit = ...
+        if unit == "player" then
+            CancelPendingScanTimer()
+        end
+        return
+    end
+    if event == "UNIT_EXITED_VEHICLE" then
+        local unit = ...
+        if unit == "player" and RequestScan then
+            RequestScan(0.5)
+        end
+        return
+    end
     if event == "PLAYER_DEAD" then
         CancelPendingScanTimer()
         return
