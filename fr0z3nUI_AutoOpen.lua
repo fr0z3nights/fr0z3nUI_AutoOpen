@@ -244,9 +244,6 @@ local function IsPlayerInVehicleState()
     if UnitHasVehicleUI and UnitHasVehicleUI("player") then
         return true
     end
-    if CanExitVehicle and CanExitVehicle() then
-        return true
-    end
     return false
 end
 
