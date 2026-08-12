@@ -1,0 +1,45 @@
+local _, ns = ...
+
+ns.gearSlots = ns.gearSlots or {}   -- AutoOpen Gear Caches.
+ns.gearSlotx = ns.gearSlotx or {}   -- Excluded Gear Caches.
+
+--                              Item Name                         Reason           Slot(s) 
+ns.gearSlots[281429] = { "Void-Touched Armaments",              "Any Slot (SB)",    {"00"     } }       -- Vendor Cache
+ns.gearSlots[281428] = { "Void-Touched Armaments: Rings",       "Rings (SB)",       {"11","12"} }       -- Vendor Cache
+ns.gearSlots[281427] = { "Void-Touched Armaments: Necklaces",   "Neck (SB)",        {"02",    } }       -- Vendor Cache
+ns.gearSlots[281426] = { "Void-Touched Armaments: Weapons",     "Weapon (SB)",      {"16","17"} }       -- Vendor Cache
+ns.gearSlots[281425] = { "Void-Touched Armaments: Head",        "Head (SB)",        {"01",    } }       -- Vendor Cache
+ns.gearSlots[281424] = { "Void-Touched Armaments: Shoulders",   "Shoulder (SB)",    {"03",    } }       -- Vendor Cache
+ns.gearSlots[281423] = { "Void-Touched Armaments: Cloak",       "Cloak (SB)",       {"15",    } }       -- Vendor Cache
+ns.gearSlots[281422] = { "Void-Touched Armaments: Chest",       "Chest (SB)",       {"05",    } }       -- Vendor Cache
+ns.gearSlots[281421] = { "Void-Touched Armaments: Bracers",     "Bracers (SB)",     {"09",    } }       -- Vendor Cache
+ns.gearSlots[281420] = { "Void-Touched Armaments: Gloves",      "Gloves (SB)",      {"10",    } }       -- Vendor Cache
+ns.gearSlots[281419] = { "Void-Touched Armaments: Belts",       "Belts (SB)",       {"06",    } }       -- Vendor Cache
+ns.gearSlots[281418] = { "Void-Touched Armaments: Legs",        "Legs (SB)",        {"07",    } }       -- Vendor Cache
+ns.gearSlots[281417] = { "Void-Touched Armaments: Boots",       "Boots (SB)",       {"08",    } }       -- Vendor Cache
+ns.gearSlotx[281416] = { "Void-Touched Armaments: Rings",       "Rings (WB)",       {"11","12"} }       -- Vendor Cache
+ns.gearSlotx[281415] = { "Void-Touched Armaments: Neck",        "Neck (WB)",        {"02",    } }       -- Vendor Cache
+ns.gearSlotx[281414] = { "Void-Touched Armaments: Weapon",      "Weapon (WB)",      {"16","17"} }       -- Vendor Cache
+ns.gearSlotx[281413] = { "Void-Touched Armaments: Head",        "Head (WB)",        {"01",    } }       -- Vendor Cache
+ns.gearSlotx[281412] = { "Void-Touched Armaments: Shoulder",    "Shoulder (WB)",    {"03",    } }       -- Vendor Cache
+ns.gearSlotx[281411] = { "Void-Touched Armaments: Cloak",       "Cloak (WB)",       {"15",    } }       -- Vendor Cache
+ns.gearSlotx[281410] = { "Void-Touched Armaments: Chest",       "Chest (WB)",       {"05",    } }       -- Vendor Cache
+ns.gearSlotx[281409] = { "Void-Touched Armaments: Bracers",     "Bracers (WB)",     {"09",    } }       -- Vendor Cache
+ns.gearSlotx[281408] = { "Void-Touched Armaments: Gloves",      "Gloves (WB)",      {"10",    } }       -- Vendor Cache
+ns.gearSlotx[281407] = { "Void-Touched Armaments: Belts",       "Belts (WB)",       {"06",    } }       -- Vendor Cache
+ns.gearSlotx[281406] = { "Void-Touched Armaments: Legs",        "Legs (WB)",        {"07",    } }       -- Vendor Cache
+ns.gearSlotx[281405] = { "Void-Touched Armaments: Boots",       "Boots (WB)",       {"08",    } }       -- Vendor Cache
+ns.gearSlots[278025] = { "Bulging Twilight Field Pouch",        "Cosmetic",         {"00",    } }       -- Vendor Cache
+ns.gearSlots[278024] = { "Bulging Naga Field Pouch",            "Cosmetic",         {"00",    } }       -- Vendor Cache
+ns.gearSlots[278022] = { "Bulging Amani Field Pouch",           "Cosmetic",         {"00",    } }       -- Vendor Cache
+ns.gearSlots[278021] = { "Bulging Elven Field Pouch",           "Cosmetic",         {"00",    } }       -- Vendor Cache
+ns.gearSlots[264323] = { "Void-Touched Weapon",                 "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264322] = { "Void-Touched Boots",                  "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264321] = { "Void-Touched Legwear",                "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264320] = { "Void-Touched Belt",                   "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264319] = { "Void-Touched Gloves",                 "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264318] = { "Void-Touched Bracers",                "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264317] = { "Void-Touched Chestpiece",             "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264316] = { "Void-Touched Cloak",                  "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264315] = { "Void-Touched Shoulderwear",           "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache
+ns.gearSlots[264314] = { "Void-Touched Headgear",               "Cosmetic (SB)",    {"00",    } }       -- Vendor Cache

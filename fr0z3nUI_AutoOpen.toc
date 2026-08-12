@@ -25,6 +25,7 @@ fr0z3nUI_AutoOpenXPEV.lua
 fr0z3nUI_AutoOpenXPXO.lua
 fr0z3nUI_AutoOpenXPLV.lua
 fr0z3nUI_AutoOpenXPTR.lua
+fr0z3nUI_AutoOpenXPGC.lua
 fr0z3nUI_AutoOpenXPXX.lua
 
 # Engine logic

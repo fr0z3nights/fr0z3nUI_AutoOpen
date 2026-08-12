@@ -2560,15 +2560,137 @@ frame:SetScript('OnEvent', function(self, event, ...)
 end)
 
 -- [ TOOLTIP COUNTDOWN ]
+local function GetCurrentEquippedItemLevel(itemID, explicitSlots)
+    if not (itemID and C_Item and type(C_Item.GetItemInfoInstant) == "function") then
+        return nil
+    end
+
+    local ok, _, _, _, equipLoc = pcall(C_Item.GetItemInfoInstant, itemID)
+    if not ok then
+        equipLoc = nil
+    end
+
+    local gearData = (ns and ns.gearSlotx and ns.gearSlotx[itemID])
+        or (ns and ns.gearSlots and ns.gearSlots[itemID])
+    local slots = explicitSlots or (type(gearData) == "table" and gearData[3])
+
+    if slots then
+        for _, slot in ipairs(slots) do
+            if tonumber(slot) == 0 then
+                return nil
+            end
+        end
+    end
+
+    if not slots and (type(equipLoc) ~= "string" or equipLoc == "") then
+        local exclusion = ns and ns.exclude and ns.exclude[itemID]
+        local reason = type(exclusion) == "table" and exclusion[2] or nil
+        local equipLocByReason = {
+            ["WB Rings"] = { 11, 12 },
+            ["WB Neck"] = { 2 },
+            ["WB Weapon"] = { 16, 17 },
+            ["WB Head"] = { 1 },
+            ["WB Shoulder"] = { 3 },
+            ["WB Cloak"] = { 15 },
+            ["WB Chest"] = { 5 },
+            ["WB Bracers"] = { 9 },
+            ["WB Gloves"] = { 10 },
+            ["WB Belts"] = { 6 },
+            ["WB Legs"] = { 7 },
+            ["WB Boots"] = { 8 },
+        }
+        slots = equipLocByReason[reason]
+    end
+
+    if not slots and type(equipLoc) ~= "string" then
+        return nil
+    end
+
+    if not slots and equipLoc == "INVTYPE_FINGER" then
+        slots = { 11, 12 }
+    elseif not slots and equipLoc == "INVTYPE_TRINKET" then
+        slots = { 13, 14 }
+    elseif not slots and equipLoc == "INVTYPE_WEAPON" then
+        slots = { 16, 17 }
+    elseif not slots and (equipLoc == "INVTYPE_2HWEAPON" or equipLoc == "INVTYPE_WEAPONMAINHAND") then
+        slots = { 16 }
+    elseif not slots and (equipLoc == "INVTYPE_WEAPONOFFHAND" or equipLoc == "INVTYPE_SHIELD" or equipLoc == "INVTYPE_HOLDABLE") then
+        slots = { 17 }
+    elseif not slots then
+        local slotByEquipLoc = {
+            INVTYPE_HEAD = 1,
+            INVTYPE_NECK = 2,
+            INVTYPE_SHOULDER = 3,
+            INVTYPE_BODY = 4,
+            INVTYPE_CHEST = 5,
+            INVTYPE_ROBE = 5,
+            INVTYPE_WAIST = 6,
+            INVTYPE_LEGS = 7,
+            INVTYPE_FEET = 8,
+            INVTYPE_WRIST = 9,
+            INVTYPE_HAND = 10,
+            INVTYPE_CLOAK = 15,
+        }
+        local slot = slotByEquipLoc[equipLoc]
+        if slot then
+            slots = { slot }
+        end
+    end
+
+    if not slots or type(GetInventoryItemLink) ~= "function" then
+        return nil
+    end
+
+    local levels = {}
+    for _, slot in ipairs(slots) do
+        local slotID = tonumber(slot)
+        local okLink, link = false, nil
+        if slotID then
+            okLink, link = pcall(GetInventoryItemLink, "player", slotID)
+        end
+        if okLink and link then
+            local getLevel = (C_Item and C_Item.GetDetailedItemLevelInfo) or GetDetailedItemLevelInfo
+            if type(getLevel) == "function" then
+                local okLevel, level = pcall(getLevel, link)
+                level = okLevel and tonumber(level) or nil
+                if level then
+                    levels[#levels + 1] = level
+                end
+            end
+        end
+    end
+
+    if #levels == 0 then
+        return nil
+    end
+    return table.concat(levels, " | ")
+end
+
+local function GetCacheItemLevel(itemID)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if type(getInfo) ~= "function" then
+        return nil
+    end
+
+    local ok, _, _, _, itemLevel = pcall(getInfo, itemID)
+    itemLevel = ok and tonumber(itemLevel) or nil
+    if itemLevel and itemLevel > 0 then
+        return itemLevel
+    end
+    return nil
+end
+
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
     and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item
 then
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
-    local id = data and data.id
+    local id = tonumber(data and data.id) or (data and data.id)
 
     if id then
         -- FAO status summary (only show when relevant)
         local isExcludedDb = (ns and ns.exclude and ns.exclude[id]) and true or false
+        local gearExcluded = ns and ns.gearSlotx and ns.gearSlotx[id]
+        local gearNormal = ns and ns.gearSlots and ns.gearSlots[id]
         local isAdded = false
         local addedSource -- "ACC" | "CHAR" | "ADDON"
         if fr0z3nUI_AutoOpen_Acc and fr0z3nUI_AutoOpen_Acc[id] then
@@ -2584,14 +2706,43 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
 
         local isDisabledAcc = (fr0z3nUI_AutoOpen_Settings and fr0z3nUI_AutoOpen_Settings.disabled and fr0z3nUI_AutoOpen_Settings.disabled[id]) and true or false
         local isDisabledChar = (fr0z3nUI_AutoOpen_CharSettings and fr0z3nUI_AutoOpen_CharSettings.disabled and fr0z3nUI_AutoOpen_CharSettings.disabled[id]) and true or false
+        local gearData = gearExcluded or gearNormal
+        local hasGearSlot = gearData and type(gearData[3]) == "table" and tonumber(gearData[3][1]) ~= 0
+        local currentLevel = hasGearSlot and GetCurrentEquippedItemLevel(id, gearData[3]) or nil
+        local cacheLevel = hasGearSlot and GetCacheItemLevel(id) or nil
 
         local statusLine
-        if isExcludedDb then
-            statusLine = "Excluded"
+        if gearExcluded then
+            statusLine = "Excluded  " .. tostring(gearExcluded[2] or gearExcluded[1] or "Gear cache")
+            if currentLevel then
+                statusLine = statusLine .. "  " .. currentLevel
+            end
+            if cacheLevel then
+                statusLine = statusLine .. " / " .. cacheLevel
+            end
+        elseif isExcludedDb then
+            local exclusion = ns.exclude[id]
+            local reason = type(exclusion) == "table" and exclusion[2] or nil
+            if type(reason) == "string" then
+                reason = string.gsub(reason, "%s*%*islot%d%d?%*%s*/?", "")
+                reason = string.gsub(reason, "%s+$", "")
+            end
+            statusLine = "Excluded" .. (reason and (": " .. tostring(reason)) or "")
+            if currentLevel then
+                statusLine = statusLine .. " " .. currentLevel
+            end
         elseif isDisabledAcc then
             statusLine = "Excluded Acc"
         elseif isDisabledChar then
             statusLine = "Excluded Char"
+        elseif gearNormal then
+            statusLine = "Auto Open  " .. tostring(gearNormal[2] or gearNormal[1] or "Gear cache")
+            if currentLevel then
+                statusLine = statusLine .. "  " .. currentLevel
+            end
+            if cacheLevel then
+                statusLine = statusLine .. " / " .. cacheLevel
+            end
         elseif isAdded then
             if addedSource == "ACC" then
                 statusLine = "Auto Open (Acc)"
