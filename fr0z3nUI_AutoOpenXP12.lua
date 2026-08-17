@@ -1,6 +1,7 @@
 ﻿local _, ns = ...
 ns.items = ns.items or {}
 
+ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looter
 ns.items[275690] = "Riftstalker's Cache"                                -- 2026-06-21 Looted
 ns.items[272125] = "Recruit's Cache"                                    -- 2026-06-23 Looted
 ns.items[271222] = "Bulging Recruit's Cache"                            -- 2026-06-23 Looted
