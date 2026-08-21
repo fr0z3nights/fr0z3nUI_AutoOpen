@@ -1,18 +1,14 @@
 ﻿local _, ns = ...
 ns.items = ns.items or {}
 
+
 ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looter
+ns.items[275986] = "Delver's Cosmetic Suprise Bag"                      -- 2026-08-19 Purchased
+ns.items[275978] = "Delver's Starter Kit"                               -- 2026-08-19 Purchased
 ns.items[275690] = "Riftstalker's Cache"                                -- 2026-06-21 Looted
 ns.items[272125] = "Recruit's Cache"                                    -- 2026-06-23 Looted
 ns.items[271222] = "Bulging Recruit's Cache"                            -- 2026-06-23 Looted
-ns.items[271221] = "Wriggling Recruit's Field Pouch"                    -- 2026-06-23 Looted
-ns.items[270987] = "Recruit's Field Pouch"                              -- 2026-07-09 Looted
-ns.items[270934] = "Recruit's Field Pouch"                              -- 2026-06-15 Looted
-ns.items[270933] = "Bulging Field Pouch"                                -- 2026-07-18 Looted
-ns.items[270932] = "Wriggling Field Pouch"                              -- 2026-07-11 Looted
 ns.items[270431] = "Haranir Footlocker"                                 -- 2026-07-09 Looted
-ns.items[270247] = "Field Satchel"
-ns.items[270244] = "Field Pouch"
 ns.items[269702] = "Overflowing Abundant Satchel"                       -- 2023-11-14 Event Reward
 ns.items[269007] = "Preyseeker's Glittering Coin Pouch"                 -- from AutoOpenContainers
 ns.items[269006] = "Preyseeker's Gleaming Coin Pouch"                   -- from AutoOpenContainers

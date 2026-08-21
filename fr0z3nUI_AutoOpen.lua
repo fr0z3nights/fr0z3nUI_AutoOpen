@@ -2247,7 +2247,7 @@ function frame:RunScan(isKick)
                 local hasPeekRule = HasPeekRuleForItemID(id)
                 local wantsPeekByRule = hasPeekRule and ShouldPeekItemID(id)
                 local shouldPeek = allowPeekThisScan and wantsPeekByRule
-                if not isHatching and (hasPeekRule or ns.items[id] or fr0z3nUI_AutoOpen_Acc[id] or fr0z3nUI_AutoOpen_Char[id]) then
+                if not isHatching and (hasPeekRule or ns.items[id] or ns.levelLocked[id] or fr0z3nUI_AutoOpen_Acc[id] or fr0z3nUI_AutoOpen_Char[id]) then
                     local req = GetRequiredLevelForID(id)
                     if req and UnitLevel and UnitLevel("player") < req then
                         -- Level-locked openable: do not auto-open yet

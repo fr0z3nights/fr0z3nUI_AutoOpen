@@ -3,7 +3,7 @@ ns.exclude = ns.exclude or {}
 
 -- [ EXCLUSION DATABASE - 2026 CONSOLIDATED ]
 -- Sorted by itemID (descending).
-
+ns.exclude[280458] = { "Delver's Corroded Pouch of Undercoin",  "Item not Cache" }              -- 2026-08-19 Purchased
 ns.exclude[268297] = { "Rattling Bag o'Gold",                   "Doesn't AutoOpen" }            -- 2026-08-09 Looted
 ns.exclude[264475] = { "Umbral Tin Lockbox",                    "Locked" }                      -- in AutoOpenContainers
 ns.exclude[262432] = { "Weathered Lockbox",                     "Locked" }                      -- from AutoOpenContainers
