@@ -524,61 +524,6 @@ local function ApplyAutoLootSettingOnWorld()
     end
 end
 
-local function GetFriendlyNPCNameplatesSafe()
-    if GetCVarBool then
-        return GetCVarBool("nameplateShowFriendlyNPCs")
-    end
-    if C_CVar and C_CVar.GetCVarBool then
-        return C_CVar.GetCVarBool("nameplateShowFriendlyNPCs")
-    end
-    if GetCVar then
-        local v = GetCVar("nameplateShowFriendlyNPCs")
-        if v == nil then return nil end
-        return tostring(v) == "1"
-    end
-    return nil
-end
-
-local function SetFriendlyNPCNameplatesSafe(enabled)
-    local v = enabled and "1" or "0"
-    if C_CVar and C_CVar.SetCVar then
-        C_CVar.SetCVar("nameplateShowFriendlyNPCs", v)
-        return true
-    end
-    if SetCVar then
-        SetCVar("nameplateShowFriendlyNPCs", v)
-        return true
-    end
-    return false
-end
-
-local function GetNPCNameplatesSettingEffective()
-    if fr0z3nUI_AutoOpen_Settings and type(fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount) == "boolean" then
-        return fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount
-    end
-    if fr0z3nUI_AutoOpen_CharSettings and type(fr0z3nUI_AutoOpen_CharSettings.npcNameplates) == "boolean" then
-        return fr0z3nUI_AutoOpen_CharSettings.npcNameplates
-    end
-    return true
-end
-
-local function IsFGOActive()
-    local fn = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
-    if type(fn) ~= "function" then
-        return false
-    end
-    local ok, loaded = pcall(fn, "fr0z3nUI_GameOptions")
-    return ok and loaded and true or false
-end
-
-local function ApplyNPCNameplatesSettingOnWorld()
-    if IsFGOActive() then
-        return
-    end
-    local enabled = GetNPCNameplatesSettingEffective()
-    SetFriendlyNPCNameplatesSafe(enabled)
-end
-
 local function NormalizeCooldown(value)
     local cd = tonumber(value)
     if not cd then return 2 end
@@ -887,18 +832,6 @@ local function InitSV()
     -- Default: account override unset
     if fr0z3nUI_AutoOpen_Settings.autoLootOnLoginAccount ~= nil and type(fr0z3nUI_AutoOpen_Settings.autoLootOnLoginAccount) ~= "boolean" then
         fr0z3nUI_AutoOpen_Settings.autoLootOnLoginAccount = nil
-    end
-
-    -- Friendly NPC Nameplates (3-state)
-    -- ON      = on (per-character)
-    -- ON ACC  = account override on (overrides character)
-    -- OFF ACC = account override off (overrides character)
-    -- Defaults: character ON, account override unset
-    if type(fr0z3nUI_AutoOpen_CharSettings.npcNameplates) ~= "boolean" then
-        fr0z3nUI_AutoOpen_CharSettings.npcNameplates = true
-    end
-    if fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount ~= nil and type(fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount) ~= "boolean" then
-        fr0z3nUI_AutoOpen_Settings.npcNameplatesAccount = nil
     end
 
     -- Cache Lock (per-character): when OFF, bypass openable-cache validation for manual adds.
@@ -2381,7 +2314,6 @@ frame:SetScript('OnEvent', function(self, event, ...)
         InitSV()
         EnsureWatchdogTicker()
         ApplyAutoLootSettingOnWorld()
-        ApplyNPCNameplatesSettingOnWorld()
         if UpdateMinimapButtonVisibility then
             UpdateMinimapButtonVisibility()
         end
@@ -2398,7 +2330,6 @@ frame:SetScript('OnEvent', function(self, event, ...)
         InitSV()
         EnsureWatchdogTicker()
         ApplyAutoLootSettingOnWorld()
-        ApplyNPCNameplatesSettingOnWorld()
         if frame._didOpenGreatVaultThisLogin == nil then
             frame._didOpenGreatVaultThisLogin = false
         end
@@ -3416,9 +3347,6 @@ ns.API.GetRequiredLevelForID = GetRequiredLevelForID
 ns.API.IsProbablyOpenableCacheID = IsProbablyOpenableCacheID
 ns.API.SetAutoLootDefaultSafe = SetAutoLootDefaultSafe
 ns.API.GetAutoLootEnforceMode = GetAutoLootEnforceMode
-ns.API.ApplyNPCNameplatesSettingOnWorld = ApplyNPCNameplatesSettingOnWorld
-ns.API.GetFriendlyNPCNameplatesSafe = GetFriendlyNPCNameplatesSafe
-ns.API.GetNPCNameplatesSettingEffective = GetNPCNameplatesSettingEffective
 ns.API.GetGreatVaultAutoOpenMode = GetGreatVaultAutoOpenMode
 ns.API.ShowGreatVault = ns and ns.ShowGreatVault or nil
 ns.API.GetTalentAutoOpenMode = GetTalentAutoOpenMode

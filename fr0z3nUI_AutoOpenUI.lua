@@ -19,10 +19,6 @@ local IsProbablyOpenableCacheID = api.IsProbablyOpenableCacheID
 local SetAutoLootDefaultSafe = api.SetAutoLootDefaultSafe
 local GetAutoLootEnforceMode = api.GetAutoLootEnforceMode
 
-local ApplyNPCNameplatesSettingOnWorld = api.ApplyNPCNameplatesSettingOnWorld
-local GetFriendlyNPCNameplatesSafe = api.GetFriendlyNPCNameplatesSafe
-local GetNPCNameplatesSettingEffective = api.GetNPCNameplatesSettingEffective
-
 local GetGreatVaultAutoOpenMode = api.GetGreatVaultAutoOpenMode
 local GetTalentAutoOpenMode = api.GetTalentAutoOpenMode
 local GetTrainerAutoLearnMode = api.GetTrainerAutoLearnMode
@@ -750,9 +746,6 @@ local function CreateOptionsWindow()
             FRAME_W = FRAME_W,
             SetAutoLootDefaultSafe = SetAutoLootDefaultSafe,
             GetAutoLootEnforceMode = GetAutoLootEnforceMode,
-            ApplyNPCNameplatesSettingOnWorld = ApplyNPCNameplatesSettingOnWorld,
-            GetFriendlyNPCNameplatesSafe = GetFriendlyNPCNameplatesSafe,
-            GetNPCNameplatesSettingEffective = GetNPCNameplatesSettingEffective,
             GetGreatVaultAutoOpenMode = GetGreatVaultAutoOpenMode,
             ShowGreatVault = ShowGreatVault,
             GetTalentAutoOpenMode = GetTalentAutoOpenMode,

@@ -4,6 +4,10 @@ Format: `YYYY.MM.DD.NN` (TOC `## Version`) — short summary. Newest at the top.
 
 Discipline: bump TOC `## Version` on every behavior/UI change (sanity check stays meaningful).
 
+## 2026.08.24.01
+- Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpenToggles.lua`, `fr0z3nUI_AutoOpenUI.lua`, `fr0z3nUI_AutoOpen.toc`
+- CVars: removed FAO's legacy friendly NPC nameplates enforcement so it no longer changes `nameplateShowFriendlyNPCs` during login or world transitions. This setting is owned by GameOptions.
+
 ## 2026.04.11.01
 - Files: `fr0z3nUI_AutoOpenXPXX.lua`, `fr0z3nUI_AutoOpen.toc`
 - Auto-open list: exclude `Brightly Colored Egg` (`45072`) from auto-open.

@@ -25,10 +25,6 @@ function ns.Toggles.Build(opts)
     local SetAutoLootDefaultSafe = opts.SetAutoLootDefaultSafe
     local GetAutoLootEnforceMode = opts.GetAutoLootEnforceMode
 
-    local ApplyNPCNameplatesSettingOnWorld = opts.ApplyNPCNameplatesSettingOnWorld
-    local GetFriendlyNPCNameplatesSafe = opts.GetFriendlyNPCNameplatesSafe
-    local GetNPCNameplatesSettingEffective = opts.GetNPCNameplatesSettingEffective
-
     local GetGreatVaultAutoOpenMode = opts.GetGreatVaultAutoOpenMode
     local ShowGreatVault = opts.ShowGreatVault
 
