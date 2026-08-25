@@ -2,7 +2,8 @@
 ns.items = ns.items or {}
 
 
-ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looter
+ns.items[282183] = "Fabled Coiled Isle Veteran's Cache"                 -- 2026-08-25 Looted
+ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looted
 ns.items[275986] = "Delver's Cosmetic Suprise Bag"                      -- 2026-08-19 Purchased
 ns.items[275978] = "Delver's Starter Kit"                               -- 2026-08-19 Purchased
 ns.items[275690] = "Riftstalker's Cache"                                -- 2026-06-21 Looted
