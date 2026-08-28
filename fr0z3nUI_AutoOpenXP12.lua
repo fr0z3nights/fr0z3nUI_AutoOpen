@@ -4,9 +4,11 @@ ns.items = ns.items or {}
 
 ns.items[282183] = "Fabled Coiled Isle Veteran's Cache"                 -- 2026-08-25 Looted
 ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looted
+ns.items[278329] = "Thalassian Recipe in a Bottle"                      -- 2026-08-28 Looted
 ns.items[275986] = "Delver's Cosmetic Suprise Bag"                      -- 2026-08-19 Purchased
 ns.items[275978] = "Delver's Starter Kit"                               -- 2026-08-19 Purchased
 ns.items[275690] = "Riftstalker's Cache"                                -- 2026-06-21 Looted
+ns.items[274714] = "Cache of Armani Treasures"                          -- 2026-06-28 Looted
 ns.items[272125] = "Recruit's Cache"                                    -- 2026-06-23 Looted
 ns.items[271222] = "Bulging Recruit's Cache"                            -- 2026-06-23 Looted
 ns.items[270431] = "Haranir Footlocker"                                 -- 2026-07-09 Looted
