@@ -1399,6 +1399,7 @@ end
 local lastTalentNotifyAt, lastTalentNotifiedPoints = 0, nil
 local didTryLoadTalentAddonsForPoints = false
 local talentCheckSeq = 0
+local TALENT_CHECK_DELAY = 45
 local talentDeferredAfterCombat = nil -- { isInitialLogin=bool, isReloadingUi=bool, seq=number, at=time }
 local lastCombatEndedAt = 0
 local TALENT_POST_COMBAT_DELAY = 30
@@ -2345,7 +2346,7 @@ frame:SetScript('OnEvent', function(self, event, ...)
         -- Talents: useful on /reload, portals, and instance transitions.
         talentCheckSeq = talentCheckSeq + 1
         local seq = talentCheckSeq
-        C_Timer.After(2, function()
+        C_Timer.After(TALENT_CHECK_DELAY, function()
             MaybeHandleTalents(isInitialLogin, isReloadingUi, 0, seq)
         end)
 

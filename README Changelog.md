@@ -4,6 +4,12 @@ Format: `YYYY.MM.DD.NN` (TOC `## Version`) — short summary. Newest at the top.
 
 Discipline: bump TOC `## Version` on every behavior/UI change (sanity check stays meaningful).
 
+## 2026.09.10.01
+- Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpen.toc`
+- Talents: delayed the automatic talent check after entering the world from 2 seconds to 45 seconds.
+    - Takes pressure off load and allows other addons like Zyogr's Talent UI to load in first.
+
+
 ## 2026.08.24.01
 - Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpenToggles.lua`, `fr0z3nUI_AutoOpenUI.lua`, `fr0z3nUI_AutoOpen.toc`
 - CVars: removed FAO's legacy friendly NPC nameplates enforcement so it no longer changes `nameplateShowFriendlyNPCs` during login or world transitions. This setting is owned by GameOptions.
