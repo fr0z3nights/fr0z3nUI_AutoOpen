@@ -52,15 +52,15 @@ ns.items[213428] = "Loot-Stuffed Basket"
 
 -- Brewfest
 --ns.items[243347] = "Keg of Curiosities"                       -- from OpenableBeGone
-ns.items[243293] = "Bag of Brewfest Merchandise"              -- from OpenableBeGone
-ns.items[243292] = "Bag of Brewfest Merchandise"              -- from OpenableBeGone
-ns.items[243291] = "Bag of Brewfest Merchandise"              -- from OpenableBeGone
+ns.items[243293] = "Bag of Brewfest Merchandise"                -- from OpenableBeGone
+ns.items[243292] = "Bag of Brewfest Merchandise"                -- from OpenableBeGone
+ns.items[243291] = "Bag of Brewfest Merchandise"                -- from OpenableBeGone
 ns.items[149752] = "Keg-Shaped Treasure Box"
 ns.items[117393] = "Keg-Shaped Treasure Chest"
 ns.items[ 54535] = "Keg-Shaped Treasure Chest"
 
 -- Hallow's End (Halloween)
---ns.items[209025] = "Loot-Filled Pumpkin"                             -- OpenableBeGone
+--ns.items[209025] = "Loot-Filled Pumpkin"                       -- OpenableBeGone
 --ns.items[209024] = "Loot-Filled Pumpkin"
 --ns.items[209020] = "Loot-Filled Pumpkin"                             -- OpenableBeGone
 ns.items[149574] = "Loot-Stuffed Pumpkin"
