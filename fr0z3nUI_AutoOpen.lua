@@ -1400,9 +1400,6 @@ local lastTalentNotifyAt, lastTalentNotifiedPoints = 0, nil
 local didTryLoadTalentAddonsForPoints = false
 local talentCheckSeq = 0
 local TALENT_CHECK_DELAY = 45
-local talentDeferredAfterCombat = nil -- { isInitialLogin=bool, isReloadingUi=bool, seq=number, at=time }
-local lastCombatEndedAt = 0
-local TALENT_POST_COMBAT_DELAY = 30
 
 local function GetUnspentTalentPointsSafe()
     local function Query()
@@ -1592,6 +1589,15 @@ local function ShowTalentsUI()
     end
 
     local togglePlayerSpellsFrame = _G and _G["TogglePlayerSpellsFrame"]
+
+    -- Already open: the toggle path below would close it instead.
+    for _, name in ipairs({ "PlayerSpellsFrame", "ClassTalentFrame" }) do
+        local f = _G and _G[name]
+        if f and f.IsShown and f:IsShown() then
+            return true
+        end
+    end
+
     if type(togglePlayerSpellsFrame) == "function" then
         if type(securecall) == "function" then
             securecall(togglePlayerSpellsFrame)
@@ -1674,34 +1680,9 @@ local function MaybeHandleTalents(isInitialLogin, isReloadingUi, attempt, seq)
 
     if seq ~= nil and seq ~= talentCheckSeq then return end
 
-    -- Don't fire talent reminders during combat. Defer the check until combat ends.
+    -- A check that lands in combat is dropped, not deferred.
     if InCombatLockdown and InCombatLockdown() then
-        if attempt == 0 and seq ~= nil then
-            talentDeferredAfterCombat = {
-                isInitialLogin = isInitialLogin,
-                isReloadingUi = isReloadingUi,
-                seq = seq,
-                at = (GetTime and GetTime()) or 0,
-            }
-        end
         return
-    end
-
-    -- Don't fire talent reminders immediately after combat either.
-    local nowForCombat = (GetTime and GetTime()) or 0
-    if lastCombatEndedAt and lastCombatEndedAt > 0 and nowForCombat > 0 then
-        local since = nowForCombat - lastCombatEndedAt
-        if since < TALENT_POST_COMBAT_DELAY then
-            if attempt == 0 and seq ~= nil then
-                talentDeferredAfterCombat = {
-                    isInitialLogin = isInitialLogin,
-                    isReloadingUi = isReloadingUi,
-                    seq = seq,
-                    at = nowForCombat,
-                }
-            end
-            return
-        end
     end
 
     local uiMode, talentEnabled = GetTalentAutoOpenMode()
@@ -2240,6 +2221,7 @@ frame:RegisterEvent('TRADE_SHOW'); frame:RegisterEvent('TRADE_CLOSED')
 frame:RegisterEvent('AUCTION_HOUSE_SHOW'); frame:RegisterEvent('AUCTION_HOUSE_CLOSED')
 frame:RegisterEvent('TRAINER_SHOW'); frame:RegisterEvent('TRAINER_UPDATE'); frame:RegisterEvent('TRAINER_CLOSED')
 frame:RegisterEvent('PLAYER_INTERACTION_MANAGER_FRAME_SHOW'); frame:RegisterEvent('PLAYER_INTERACTION_MANAGER_FRAME_HIDE')
+frame:RegisterEvent('PLAYER_CONTROL_LOST')
 
 -- Used to debounce the post-vendor "kick" scan.
 local merchantKickSeq = 0
@@ -2468,26 +2450,13 @@ frame:SetScript('OnEvent', function(self, event, ...)
         end
     elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED" then
         RequestScan(0.3)
-
-        -- If a talent check was deferred due to combat, retry shortly after leaving combat.
-        if event == "PLAYER_REGEN_ENABLED" and talentDeferredAfterCombat then
-            lastCombatEndedAt = (GetTime and GetTime()) or 0
-            local d = talentDeferredAfterCombat
-            talentDeferredAfterCombat = nil
-            local now = (GetTime and GetTime()) or 0
-            if d.seq == talentCheckSeq and (now <= 0 or d.at <= 0 or (now - d.at) <= 60) then
-                local delay = 1
-                if now > 0 and lastCombatEndedAt > 0 then
-                    local remaining = TALENT_POST_COMBAT_DELAY - (now - lastCombatEndedAt)
-                    if remaining and remaining > delay then
-                        delay = remaining
-                    end
-                end
-                C_Timer.After(delay, function()
-                    MaybeHandleTalents(d.isInitialLogin, d.isReloadingUi, 0, d.seq)
-                end)
-            end
-        end
+    elseif event == "PLAYER_CONTROL_LOST" then
+        -- UnitOnTaxi isn't reliably true on the same frame control is lost.
+        C_Timer.After(1, function()
+            if not (UnitOnTaxi and UnitOnTaxi("player")) then return end
+            talentCheckSeq = talentCheckSeq + 1
+            MaybeHandleTalents(false, false, 0, talentCheckSeq)
+        end)
     end
 end)
 

@@ -4,6 +4,7 @@ ns.items = ns.items or {}
 
 ns.items[282183] = "Fabled Coiled Isle Veteran's Cache"                 -- 2026-08-25 Looted
 ns.items[279527] = "Apex Cache"											-- 2026-09-18 Looted
+ns.items[279523] = "Overflowing Abundant Satchel"					    -- 2026-10-07 Looted
 ns.items[279520] = "Fabled Veteran's Cache"                             -- 2026-09-02 Looted
 ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looted
 ns.items[278329] = "Thalassian Recipe in a Bottle"                      -- 2026-08-28 Looted

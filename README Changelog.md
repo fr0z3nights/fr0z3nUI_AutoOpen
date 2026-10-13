@@ -4,6 +4,18 @@ Format: `YYYY.MM.DD.NN` (TOC `## Version`) — short summary. Newest at the top.
 
 Discipline: bump TOC `## Version` on every behavior/UI change (sanity check stays meaningful).
 
+## 2026.10.03.03
+- Files: `fr0z3nUI_AutoOpen.lua`, `README Changelog.md`, `fr0z3nUI_AutoOpen.toc`
+- Talents: auto-open no longer closes the talent window when it is already open.
+
+## 2026.10.03.02
+- Files: `fr0z3nUI_AutoOpen.lua`, `README Changelog.md`, `fr0z3nUI_AutoOpen.toc`
+- Talents: also run the talent check about 1 second after a taxi flight starts.
+
+## 2026.10.03.01
+- Files: `fr0z3nUI_AutoOpen.lua`, `README Changelog.md`, `fr0z3nUI_AutoOpen.toc`
+- Talents: a talent check that lands in combat is now skipped instead of re-running after combat ends.
+
 ## 2026.09.10.01
 - Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpen.toc`
 - Talents: delayed the automatic talent check after entering the world from 2 seconds to 45 seconds.
