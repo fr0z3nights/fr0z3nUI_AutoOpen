@@ -8,6 +8,7 @@ ns.items[279523] = "Overflowing Abundant Satchel"					    -- 2026-10-07 Looted
 ns.items[279520] = "Fabled Veteran's Cache"                             -- 2026-09-02 Looted
 ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looted
 ns.items[278329] = "Thalassian Recipe in a Bottle"                      -- 2026-08-28 Looted
+ns.items[277283] = "Aqir Research Satchel"								--	2026-10-15	Looted
 ns.items[275986] = "Delver's Cosmetic Suprise Bag"                      -- 2026-08-19 Purchased
 ns.items[275978] = "Delver's Starter Kit"								-- 2026-08-19 Purchased
 ns.items[275899] = "Venom-Soaked Satchel"								-- 2026-06-21 Looted
