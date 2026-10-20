@@ -42,6 +42,7 @@ ns.items[171210] = "Satchel of Nature's Bounty"
 ns.items[171209] = "Blooded Satchel"
 ns.items[171988] = "Adventurer's Footlocker"
 ns.items[170539] = "Plundered Supplies"
+ns.items[170502] = "Waterlogged Toolbox"  -- User Preference
 ns.items[170489] = "Mardivas's Handmade Handbag"
 ns.items[170473] = "Jingling Sack"
 ns.items[170195] = "Voidcaster's Supply Bag"

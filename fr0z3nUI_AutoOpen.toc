@@ -3,7 +3,7 @@
 ## Title: |cff00ccfffr0z3nUI|r AutoOpen
 ## Notes: Auto-Opens Caches. Open UI /fao
 ## Author: fr0z3nights
-## Version: 2026.10.03.03
+## Version: 2026.10.20.08
 ## SavedVariables: fr0z3nUI_AutoOpen_Acc, fr0z3nUI_AutoOpen_AccStats, fr0z3nUI_AutoOpen_Settings, fr0z3nUI_AutoOpen_Timers, fr0z3nUI_AutoOpen_UI
 ## SavedVariablesPerCharacter: fr0z3nUI_AutoOpen_Char, fr0z3nUI_AutoOpen_CharSettings
 # IconTexture: Interface\AddOns\fr0z3nUI_AutoOpen\Icons\AutoIcon.tga
@@ -27,6 +27,7 @@ fr0z3nUI_AutoOpenXPLV.lua
 fr0z3nUI_AutoOpenXPTR.lua
 fr0z3nUI_AutoOpenXPGC.lua
 fr0z3nUI_AutoOpenXPXX.lua
+fr0z3nUI_AutoOpenXPXB.lua
 
 # Engine logic
 fr0z3nUI_AutoOpen.lua

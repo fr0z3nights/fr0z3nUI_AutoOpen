@@ -1,0 +1,33 @@
+local _, ns = ...
+ns.button = ns.button or {}
+
+ns.button[280458] = { "Delver's Corroded Pouch of Undercoin",   "Item not Cache" }              -- 2026-08-19 Purchased
+ns.button[268297] = { "Rattling Bag o'Gold",			        "Item not Cache" }
+
+ns.button[226258] = { "Delver's Pouch of Reagents",				"Item not Cache" }            --
+ns.button[225249] = { "Rattling Bag o'Gold",					"Item not Cache" }            --
+ns.button[221375] = { "Pack of Runed Harbinger Crests",			"Item not Cache" }            --
+ns.button[221373] = { "Satchel of Carved Harbinger Crests",		"Item not Cache" }            --
+ns.button[221268] = { "Pouch of Weathered Harbinger Crests",	"Item not Cache" }            --
+ns.button[220776] = { "Gilded Harbinger Crests",				"Item not Cache" }            --
+ns.button[220773] = { "Runed Harbinger Crests",					"Item not Cache" }            --
+ns.button[220767] = { "Carved Harbinger Crests",				"Item not Cache" }            --
+ns.button[205423] = { "Shadowflame Residue Sack",				"Item not Cache" }            --
+ns.button[198395] = { "Dull Spined Clam",						"Item not Cache" }            -- 
+ns.button[191060] = { "Black Sack of Gems",						"Item not Cache" }            -- 
+ns.button[190339] = { "Enlightened Offering",					"Item not Cache" }            -- 
+ns.button[184866] = { "Grummlepouch",							"Item not Cache" }            -- 
+ns.button[180592] = { "Trapped Stonefiend",						"Item not Cache" }            -- 
+ns.button[157825] = { "Faronis Lockbox",						"Item not Cache" }            -- 
+ns.button[157822] = { "Dreamweaver Lockbox",					"Item not Cache" }            -- 
+ns.button[152922] = { "Brittle Krokul Chest",					"Item not Cache" }            -- 
+ns.button[152108] = { "Legionfall Chest",						"Item not Cache" }            -- 
+ns.button[152106] = { "Valarjar Strongbox",						"Item not Cache" }            -- 
+ns.button[152103] = { "Dreamweaver Cache",						"Item not Cache" }            -- 
+ns.button[143753] = { "Damp Pet Supplies",						"Item not Cache" }            -- 
+ns.button[142447] = { "Torn Sack of Pet Supplies",				"Item not Cache" }            -- 
+ns.button[136926] = { "Nightmare Pod",							"Item not Cache" }            -- 
+ns.button[119000] = { "Highmaul Lockbox",						"Item not Cache" }         	-- 
+ns.button[118697] = { "Big Bag of Pet Supplies",				"Item not Cache" }            -- 
+ns.button[ 45072] = { "Brightly Colored Egg",					"Item Now: Transform Rules" }		-- Because it Transforms user
+ns.button[ 37586] = { "Handful of Treats",						"Item Now: Transform Rules" }		-- Because it Transforms user

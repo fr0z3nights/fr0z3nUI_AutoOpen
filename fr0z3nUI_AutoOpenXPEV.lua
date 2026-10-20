@@ -64,7 +64,7 @@ ns.items[ 54535] = "Keg-Shaped Treasure Chest"
 --ns.items[209024] = "Loot-Filled Pumpkin"
 --ns.items[209020] = "Loot-Filled Pumpkin"                             -- OpenableBeGone
 ns.items[149574] = "Loot-Stuffed Pumpkin"
-ns.items[ 37586] = "Handful of Treats"
+--ns.items[ 37586] = "Handful of Treats"
 
 -- Anniversary
 ns.items[235506] = "Box of Timewarped Badges"

@@ -30,6 +30,11 @@ local ShowGreatVault = api.ShowGreatVault or (ns and ns.ShowGreatVault) or nil
 local function AddItemByID(id, scope)
     if not id then print("|cff00ccff[FAO]|r Please enter a valid item ID.") return end
     if type(InitSV) == "function" then InitSV() end
+    if ns.button and ns.button[id] then
+        local entry = ns.button[id]
+        print("|cff00ccff[FAO]|r Button: |cffffff00"..entry[1].."|r - "..(entry[2] or "Requires a click"))
+        return
+    end
     if ns.items and ns.items[id] then
         print("|cff00ccff[FAO]|r Already in addon database: "..((type(GetItemNameSafe) == "function" and GetItemNameSafe(id)) or id))
         return
@@ -791,6 +796,15 @@ local function CreateOptionsWindow()
         end
 
         local iname = (type(GetItemNameSafe) == "function" and GetItemNameSafe(id)) or nil
+        if ns.button and ns.button[id] then
+            local entry = ns.button[id]
+            if f.nameLabel then f.nameLabel:SetText("|cffffff00"..entry[1].."|r") end
+            if f.reasonLabel then f.reasonLabel:SetText("|cffff9900Button: "..(entry[2] or "Requires a click").."|r") end
+            f.validID = nil
+            if f.btnChar then f.btnChar:Disable() end
+            if f.btnAcc then f.btnAcc:Disable() end
+            return
+        end
         if ns.exclude and ns.exclude[id] then
             local exName = ns.exclude[id][1] or iname or ("ID "..id)
             local reason = ns.exclude[id][2] or "Excluded"

@@ -2,20 +2,21 @@
 ns.items = ns.items or {}
 
 
-ns.items[282183] = "Fabled Coiled Isle Veteran's Cache"                 -- 2026-08-25 Looted
-ns.items[279527] = "Apex Cache"											-- 2026-09-18 Looted
-ns.items[279523] = "Overflowing Abundant Satchel"					    -- 2026-10-07 Looted
-ns.items[279520] = "Fabled Veteran's Cache"                             -- 2026-09-02 Looted
-ns.items[279345] = "Venom-Drenched Sack"                                -- 2026-08-15 Looted
-ns.items[278329] = "Thalassian Recipe in a Bottle"                      -- 2026-08-28 Looted
+ns.items[282183] = "Fabled Coiled Isle Veteran's Cache"                 --  2026-08-25
+ns.items[281223] = "Satchel of Corrosive Coins"                         --  2026-10-18
+ns.items[279527] = "Apex Cache"											--  2026-09-18
+ns.items[279523] = "Overflowing Abundant Satchel"					    --  2026-10-07
+ns.items[279520] = "Fabled Veteran's Cache"                             --  2026-09-02
+ns.items[279345] = "Venom-Drenched Sack"                                --  2026-08-15
+ns.items[278329] = "Thalassian Recipe in a Bottle"                      --  2026-08-28 Looted
 ns.items[277283] = "Aqir Research Satchel"								--	2026-10-15	Looted
-ns.items[275986] = "Delver's Cosmetic Suprise Bag"                      -- 2026-08-19 Purchased
-ns.items[275978] = "Delver's Starter Kit"								-- 2026-08-19 Purchased
-ns.items[275899] = "Venom-Soaked Satchel"								-- 2026-06-21 Looted
-ns.items[275690] = "Riftstalker's Cache"                                -- 2026-06-21 Looted
-ns.items[274714] = "Cache of Armani Treasures"                          -- 2026-06-28 Looted
-ns.items[272125] = "Recruit's Cache"                                    -- 2026-06-23 Looted
-ns.items[271222] = "Bulging Recruit's Cache"                            -- 2026-06-23 Looted
+ns.items[275986] = "Delver's Cosmetic Suprise Bag"                      --  2026-08-19 Purchased
+ns.items[275978] = "Delver's Starter Kit"								--  2026-08-19 Purchased
+ns.items[275899] = "Venom-Soaked Satchel"								--  2026-06-21 Looted
+ns.items[275690] = "Riftstalker's Cache"                                --  2026-06-21 Looted
+ns.items[274714] = "Cache of Armani Treasures"                          --  2026-06-28 Looted
+ns.items[272125] = "Recruit's Cache"                                    --  2026-06-23 Looted
+ns.items[271222] = "Bulging Recruit's Cache"                            --  2026-06-23 Looted
 ns.items[271221] = "Wriggling Recruit's Field Pouch"                    --  2026-06-23 Looted
 ns.items[270987] = "Recruit's Field Pouch"                              --  2026-07-09 Looted
 ns.items[270934] = "Recruit's Field Pouch"                              --  2026-06-15 Looted

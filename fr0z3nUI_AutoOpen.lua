@@ -711,6 +711,10 @@ local function InitSV()
     fr0z3nUI_AutoOpen_Char = fr0z3nUI_AutoOpen_Char or {}
     fr0z3nUI_AutoOpen_Settings = fr0z3nUI_AutoOpen_Settings or { disabled = {} }
     fr0z3nUI_AutoOpen_CharSettings = fr0z3nUI_AutoOpen_CharSettings or {}
+    if fr0z3nUI_AutoOpen_Settings.showOpenButton == nil then
+        fr0z3nUI_AutoOpen_Settings.showOpenButton = fr0z3nUI_AutoOpen_CharSettings.showOpenButton ~= false
+    end
+    fr0z3nUI_AutoOpen_CharSettings.showOpenButton = nil
     EnsureAccStatsSV()
 
     if type(fr0z3nUI_AutoOpen_Settings.disabled) ~= "table" then
@@ -2162,7 +2166,7 @@ function frame:RunScan(isKick)
                 local hasPeekRule = HasPeekRuleForItemID(id)
                 local wantsPeekByRule = hasPeekRule and ShouldPeekItemID(id)
                 local shouldPeek = allowPeekThisScan and wantsPeekByRule
-                if not isHatching and (hasPeekRule or ns.items[id] or ns.levelLocked[id] or fr0z3nUI_AutoOpen_Acc[id] or fr0z3nUI_AutoOpen_Char[id]) then
+                if not (ns.button and ns.button[id]) and not isHatching and (hasPeekRule or ns.items[id] or ns.levelLocked[id] or fr0z3nUI_AutoOpen_Acc[id] or fr0z3nUI_AutoOpen_Char[id]) then
                     local req = GetRequiredLevelForID(id)
                     if req and UnitLevel and UnitLevel("player") < req then
                         -- Level-locked openable: do not auto-open yet
@@ -2590,6 +2594,7 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
     if id then
         -- FAO status summary (only show when relevant)
         local isExcludedDb = (ns and ns.exclude and ns.exclude[id]) and true or false
+        local buttonEntry = ns and ns.button and ns.button[id]
         local gearExcluded = ns and ns.gearSlotx and ns.gearSlotx[id]
         local gearNormal = ns and ns.gearSlots and ns.gearSlots[id]
         local isAdded = false
@@ -2613,7 +2618,9 @@ TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tool
         local cacheLevel = hasGearSlot and GetCacheItemLevel(id) or nil
 
         local statusLine
-        if gearExcluded then
+        if buttonEntry then
+            statusLine = "Button: " .. tostring(buttonEntry[2] or "Requires a click")
+        elseif gearExcluded then
             statusLine = "Excluded  " .. tostring(gearExcluded[2] or gearExcluded[1] or "Gear cache")
             if currentLevel then
                 statusLine = statusLine .. "  " .. currentLevel
@@ -3322,3 +3329,125 @@ ns.API.ShowGreatVault = ns and ns.ShowGreatVault or nil
 ns.API.GetTalentAutoOpenMode = GetTalentAutoOpenMode
 ns.API.GetTrainerAutoLearnMode = GetTrainerAutoLearnMode
 ns.API.UpdateMinimapButtonVisibility = UpdateMinimapButtonVisibility
+
+-- Secure manual opening for items listed in ns.button.
+do
+    local anchor
+    local button
+    local selectedID
+    local scanTimer
+
+    local function Refresh()
+        if not button or InCombatLockdown() then return end
+
+        local counts = {}
+        local icons = {}
+        for bag = 0, NUM_BAG_SLOTS do
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local info = C_Container.GetContainerItemInfo(bag, slot)
+                if info and ns.button[info.itemID] then
+                    local id = info.itemID
+                    counts[id] = (counts[id] or 0) + info.stackCount
+                    icons[id] = info.iconFileID
+                end
+            end
+        end
+
+        if not (selectedID and counts[selectedID]) then
+            selectedID = nil
+            for id in pairs(counts) do
+                if not selectedID or id < selectedID then selectedID = id end
+            end
+        end
+
+        if not selectedID then
+            button:Hide()
+            button:SetAttribute("item", nil)
+            button.count:SetText("")
+            if GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+            return
+        end
+
+        button:SetAttribute("item", "item:" .. selectedID)
+        button.icon:SetTexture(icons[selectedID])
+        button.count:SetText(tostring(counts[selectedID]))
+        button:SetShown(fr0z3nUI_AutoOpen_Settings.showOpenButton ~= false)
+        if not button:IsShown() and GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+    end
+
+    local function RequestRefresh()
+        if scanTimer then return end
+        scanTimer = C_Timer.NewTimer(0.1, function()
+            scanTimer = nil
+            Refresh()
+        end)
+    end
+
+    ns.API.RefreshOpenButton = RequestRefresh
+
+    local function CreateButton()
+        anchor = CreateFrame("Frame", "fr0z3nUI_AutoOpenItemButtonAnchor", UIParent, "SecureHandlerStateTemplate")
+        anchor:SetSize(40, 40)
+        anchor:SetMovable(true)
+        anchor:SetClampedToScreen(true)
+        anchor:SetFrameStrata("HIGH")
+
+        local position = fr0z3nUI_AutoOpen_CharSettings.buttonPosition
+        if position then
+            anchor:SetPoint("CENTER", UIParent, "CENTER", position.x, position.y)
+        else
+            anchor:SetPoint("CENTER", UIParent, "CENTER", 0, -120)
+        end
+
+        button = CreateFrame("Button", "FAOButton", anchor, "SecureActionButtonTemplate")
+        button:SetAllPoints()
+        button:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
+        button:SetAttribute("useOnKeyDown", false)
+        button:SetAttribute("type1", "item")
+        button:RegisterForDrag("RightButton")
+        button.icon = button:CreateTexture(nil, "ARTWORK")
+        button.icon:SetAllPoints()
+        button.count = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+        button.count:SetPoint("BOTTOMRIGHT", -2, 2)
+        button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        button:SetScript("OnDragStart", function()
+            if not InCombatLockdown() then anchor:StartMoving() end
+        end)
+        button:SetScript("OnDragStop", function()
+            if InCombatLockdown() then return end
+            anchor:StopMovingOrSizing()
+            local x, y = anchor:GetCenter()
+            local parentX, parentY = UIParent:GetCenter()
+            fr0z3nUI_AutoOpen_CharSettings.buttonPosition = { x = x - parentX, y = y - parentY }
+        end)
+        button:SetScript("OnEnter", function(self)
+            if not selectedID then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetItemByID(selectedID)
+            GameTooltip:AddLine("Left-click to open one. Right-drag to move.", 1, 1, 1)
+            GameTooltip:Show()
+        end)
+        button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        button:SetScript("PostClick", RequestRefresh)
+        button:Hide()
+        RegisterStateDriver(anchor, "visibility", "[combat] hide; show")
+    end
+
+    local events = CreateFrame("Frame")
+    events:RegisterEvent("PLAYER_LOGIN")
+    events:RegisterEvent("PLAYER_ENTERING_WORLD")
+    events:RegisterEvent("BAG_UPDATE_DELAYED")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
+    events:RegisterEvent("PLAYER_REGEN_DISABLED")
+    events:RegisterEvent("LOOT_CLOSED")
+    events:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_LOGIN" then
+            InitSV()
+            CreateButton()
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            if button and GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+            return
+        end
+        RequestRefresh()
+    end)
+end

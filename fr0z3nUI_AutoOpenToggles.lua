@@ -152,6 +152,14 @@ function ns.Toggles.Build(opts)
         SetSplitButtonText(f.btnWatchdogDebug, "Watchdog", (on and "DBG ON ACC" or "DBG OFF ACC"))
     end
 
+    local function UpdateOpenButton()
+        if type(InitSV) == "function" then InitSV() end
+        if f.btnOpenButton then
+            local shown = fr0z3nUI_AutoOpen_Settings.showOpenButton ~= false
+            SetSplitButtonText(f.btnOpenButton, "Button", shown and "Show ACC" or "Hide ACC")
+        end
+    end
+
     local function UpdateAll()
         UpdateAutoOpenButton()
         UpdateAutoLootButton()
@@ -161,11 +169,36 @@ function ns.Toggles.Build(opts)
         UpdateTrainerLearnButton()
         UpdateMinimapButton()
         UpdateWatchdogDebugButton()
+        UpdateOpenButton()
     end
 
     local TOGGLE_TOP_Y = -46
     local TOGGLE_ROW_STEP = BTN_H * 2
     local TOGGLE_COL_X = math.floor((FRAME_W or 520) / 4)
+
+    local btnOpenButton = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
+    btnOpenButton:SetSize(BTN_W, BTN_H)
+    btnOpenButton:SetPoint("TOP", togglesPanel, "TOP", -TOGGLE_COL_X, TOGGLE_TOP_Y - (TOGGLE_ROW_STEP * 4))
+    btnOpenButton:SetScript("OnClick", function()
+        InitSV()
+        local shown = fr0z3nUI_AutoOpen_Settings.showOpenButton ~= false
+        fr0z3nUI_AutoOpen_Settings.showOpenButton = not shown
+        ns.API.RefreshOpenButton()
+        UpdateOpenButton()
+        print("|cff00ccff[FAO]|r Button: " .. (shown and "Hide ACC" or "Show ACC"))
+        if InCombatLockdown() then
+            print("|cff00ccff[FAO]|r Button visibility will apply after combat.")
+        end
+    end)
+    btnOpenButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Button")
+        GameTooltip:AddLine("Show/hide the manual-open button (account-wide). Default: Show.", 1, 1, 1, true)
+        GameTooltip:AddLine("/click FAOButton still works when hidden. This does not disable item scanning or opening.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    btnOpenButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.btnOpenButton = btnOpenButton
 
     local btnAutoLoot = CreateFrame("Button", nil, togglesPanel, "UIPanelButtonTemplate")
     btnAutoLoot:SetSize(BTN_W, BTN_H)

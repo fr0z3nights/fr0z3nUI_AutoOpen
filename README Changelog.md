@@ -4,6 +4,38 @@ Format: `YYYY.MM.DD.NN` (TOC `## Version`) — short summary. Newest at the top.
 
 Discipline: bump TOC `## Version` on every behavior/UI change (sanity check stays meaningful).
 
+## 2026.10.20.08
+- Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpenToggles.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Make Button Show/Hide account-wide, displaying Show ACC/Hide ACC. Seed the account preference from the first loaded character's previous setting, without overwriting an existing account choice; clear legacy character preferences. Position remains per character and hidden macro use is unchanged.
+
+## 2026.10.20.07
+- Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpenToggles.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Add per-character Button Show/Hide control to Toggles, defaulting to Show. Hiding preserves scanning and the secure item target for `/click FAOButton`; visibility changes defer during combat.
+
+## 2026.10.20.06
+- Files: `fr0z3nUI_AutoOpenXPXB.lua` (renamed from `fr0z3nUI_AutoOpenXPBT.lua`), `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Rename the button item database from XPBT to XPXB and update its load entry and documentation; behavior unchanged.
+
+## 2026.10.20.05
+- Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpenUI.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Rename BT status from `Manual Open:` to `Button:` in item tooltips, the item-ID panel, and custom-add feedback.
+
+## 2026.10.20.04
+- Files: `fr0z3nUI_AutoOpenXPBT.lua`, `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpenUI.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Standardize BT entries as name/reason tables like XX. Show `Manual Open: Reason` in item tooltips and the item-ID panel, taking precedence over overlapping exclusions, and prevent adding button-only items to custom auto-open lists. Preserve manual button selection and opening.
+
+## 2026.10.20.03
+- Files: `fr0z3nUI_AutoOpenXPBT.lua`, `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Move manual-open button runtime logic into the main AutoOpen engine, leaving XPBT as an item database only. Preserve secure button name, scanning, position storage, and click behavior.
+
+## 2026.10.20.02
+- Files: `fr0z3nUI_AutoOpenXPBT.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Shorten the secure manual-open button name to `FAOButton`, allowing `/click FAOButton` in action-bar macros.
+
+## 2026.10.20.01
+- Files: `fr0z3nUI_AutoOpenXPBT.lua`, `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
+- Add standalone secure click-to-open button for `ns.button` items, starting with Handful of Treats (37586). Show only while a listed item is carried; left-click to open one, right-drag to move, save position per character, and hide in combat. Button-only entries are excluded from automatic opening even if also custom-whitelisted.
+
 ## 2026.10.03.03
 - Files: `fr0z3nUI_AutoOpen.lua`, `README Changelog.md`, `fr0z3nUI_AutoOpen.toc`
 - Talents: auto-open no longer closes the talent window when it is already open.
