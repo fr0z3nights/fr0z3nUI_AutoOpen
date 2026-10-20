@@ -51,7 +51,7 @@ ns.items[213428] = "Loot-Stuffed Basket"
 -- ns.items[ 45072] = "Brightly Colored Egg" -- No longer works
 
 -- Brewfest
---ns.items[243347] = "Keg of Curiosities"                       -- from OpenableBeGone
+ns.items[243347] = "Keg of Curiosities"                       -- from OpenableBeGone
 ns.items[243293] = "Bag of Brewfest Merchandise"                -- from OpenableBeGone
 ns.items[243292] = "Bag of Brewfest Merchandise"                -- from OpenableBeGone
 ns.items[243291] = "Bag of Brewfest Merchandise"                -- from OpenableBeGone
@@ -60,11 +60,10 @@ ns.items[117393] = "Keg-Shaped Treasure Chest"
 ns.items[ 54535] = "Keg-Shaped Treasure Chest"
 
 -- Hallow's End (Halloween)
---ns.items[209025] = "Loot-Filled Pumpkin"                       -- OpenableBeGone
---ns.items[209024] = "Loot-Filled Pumpkin"
---ns.items[209020] = "Loot-Filled Pumpkin"                             -- OpenableBeGone
+ns.items[209025] = "Loot-Filled Pumpkin"                       -- OpenableBeGone
+ns.items[209024] = "Loot-Filled Pumpkin"
+ns.items[209020] = "Loot-Filled Pumpkin"                             -- OpenableBeGone
 ns.items[149574] = "Loot-Stuffed Pumpkin"
---ns.items[ 37586] = "Handful of Treats"
 
 -- Anniversary
 ns.items[235506] = "Box of Timewarped Badges"

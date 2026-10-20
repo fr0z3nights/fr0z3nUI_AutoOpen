@@ -4,6 +4,10 @@ Format: `YYYY.MM.DD.NN` (TOC `## Version`) — short summary. Newest at the top.
 
 Discipline: bump TOC `## Version` on every behavior/UI change (sanity check stays meaningful).
 
+## 2026.10.20.09
+- Files: `fr0z3nUI_AutoOpenXPEV.lua`, `fr0z3nUI_AutoOpenXPXO.lua`, `fr0z3nUI_AutoOpen.toc`, `README Changelog.md`.
+- Move Loot-Filled Pumpkin (209025, 209024, 209020) and Keg of Curiosities (243347) from peek-only rules to normal event auto-opening. Remove the obsolete commented Handful of Treats whitelist entry.
+
 ## 2026.10.20.08
 - Files: `fr0z3nUI_AutoOpen.lua`, `fr0z3nUI_AutoOpenToggles.lua`, `fr0z3nUI_AutoOpen.toc`, `README.md`, `README Changelog.md`.
 - Make Button Show/Hide account-wide, displaying Show ACC/Hide ACC. Seed the account preference from the first loaded character's previous setting, without overwriting an existing account choice; clear legacy character preferences. Position remains per character and hidden macro use is unchanged.
