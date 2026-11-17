@@ -38,7 +38,6 @@ ns.exclude[179311] = { "Oxxein Lockbox",                        "Requires Key (L
 ns.exclude[178969] = { "Test Container",                        "Test Items" }                  -- 
 ns.exclude[169475] = { "Barnacled Lockbox",                     "Locked Requires Key" }         -- 
 ns.exclude[168124] = { "Cache of War Resources",                "Currency Transfer" }           -- 
-ns.exclude[163497] = { "Spooky Bundle of Sticks",				"Wicker Pup (Pet Name)" }		-- 
 ns.exclude[160268] = { "Bag of Armor (DNT)",                    "Test Items" }                  -- 
 ns.exclude[121331] = { "Leystone Lockbox",                      "Locked Requires Key" }         -- 
 ns.exclude[118193] = { "Mysterious Shining Lockbox",            "Locked Requires Key" }         -- 
@@ -91,4 +90,6 @@ ns.exclude[  4634] = { "Iron Lockbox",                          "Send to Rogue/S
 ns.exclude[  4633] = { "Heavy Bronze Lockbox",                  "Send to Rogue/Sell" }          -- 
 ns.exclude[  4632] = { "Ornate Bronze Lockbox",                 "Send to Rogue/Sell" }          -- 
 
-
+--  Notes to Self
+ns.exclude[250863] = { "Naloki",                				"3 Only, Not Cageable" }		-- 
+ns.exclude[163497] = { "Spooky Bundle of Sticks",				"Wicker Pup (Pet Name)" }		-- 
